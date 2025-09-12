@@ -151,22 +151,22 @@ const (
 )
 
 type Model struct {
-	ctx              context.Context
-	bqClient         *bigquery.Client
-	datasetList      DatasetListModel
-	tableDetail      TableDetailModel
-	projectSelector  ProjectSelectorModel
-	search           SearchModel
-	focus            FocusState
-	keyMap           KeyMap
-	help             help.Model
-	showHelp         bool
-	width            int
-	height           int
-	ready            bool
-	err              error
-	statusMessage    string
-	showProjectList  bool
+	ctx             context.Context
+	bqClient        *bigquery.Client
+	datasetList     DatasetListModel
+	tableDetail     TableDetailModel
+	projectSelector ProjectSelectorModel
+	search          SearchModel
+	focus           FocusState
+	keyMap          KeyMap
+	help            help.Model
+	showHelp        bool
+	width           int
+	height          int
+	ready           bool
+	err             error
+	statusMessage   string
+	showProjectList bool
 }
 
 func NewModel(ctx context.Context, bqClient *bigquery.Client) Model {
@@ -257,7 +257,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = FocusSearch
 			m.search = NewSearchModel()
 			return m, nil
-
 
 		case key.Matches(msg, m.keyMap.Copy, m.keyMap.CopyAlt):
 			return m.handleCopy()
@@ -369,7 +368,7 @@ func (m Model) updateFocusedComponent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 	if m.focus == FocusDatasetList && m.datasetList.selectedTable != nil {
-		fullTableName := fmt.Sprintf("%s.%s.%s", 
+		fullTableName := fmt.Sprintf("%s.%s.%s",
 			m.bqClient.GetProjectID(),
 			m.datasetList.selectedTable.DatasetID,
 			m.datasetList.selectedTable.ID)
@@ -380,7 +379,7 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 			return CopySuccessMsg{Text: fullTableName}
 		}
 	}
-	
+
 	if m.focus == FocusTableDetail && m.tableDetail.activeTab == PreviewTab && m.tableDetail.preview != nil {
 		if len(m.tableDetail.preview.Rows) > m.tableDetail.previewRowCursor {
 			row := m.tableDetail.preview.Rows[m.tableDetail.previewRowCursor]
@@ -395,7 +394,7 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	
+
 	if m.focus == FocusTableDetail && m.tableDetail.activeTab == SchemaTab && m.tableDetail.schema != nil {
 		filteredFields := m.tableDetail.getFilteredSchemaFields()
 		if len(filteredFields) > m.tableDetail.schemaRowCursor {
@@ -408,7 +407,7 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	
+
 	return m, nil
 }
 
@@ -431,9 +430,10 @@ func (m Model) View() string {
 	leftPaneStyle := PaneStyle.Width(leftPaneWidth).Height(m.height - 6)
 	rightPaneStyle := PaneStyle.Width(rightPaneWidth).Height(m.height - 6)
 
-	if m.focus == FocusDatasetList {
+	switch m.focus {
+	case FocusDatasetList:
 		leftPaneStyle = ActivePaneStyle.Width(leftPaneWidth).Height(m.height - 6)
-	} else if m.focus == FocusTableDetail {
+	case FocusTableDetail:
 		rightPaneStyle = ActivePaneStyle.Width(rightPaneWidth).Height(m.height - 6)
 	}
 
@@ -464,10 +464,10 @@ func (m Model) renderStatusBar() string {
 
 	helpText := "Press ? for help"
 	helpStyled := HelpStyle.Render(helpText)
-	
+
 	// Check if status message and help text fit on one line
 	totalWidth := lipgloss.Width(left) + lipgloss.Width(helpStyled) + 3 // +3 for spacing
-	
+
 	if totalWidth <= m.width {
 		// Fit on one line
 		padding := m.width - lipgloss.Width(left) - lipgloss.Width(helpStyled)
@@ -486,37 +486,37 @@ func (m Model) renderStatusBar() string {
 
 func (m Model) renderCustomHelp() string {
 	var content strings.Builder
-	
+
 	content.WriteString(HeaderStyle.Render("🔧 bqui - BigQuery Terminal UI Help") + "\n\n")
-	
+
 	content.WriteString(HeaderStyle.Render("Navigation:") + "\n")
 	content.WriteString("  ↑↓ or j/k         Move up/down in lists\n")
 	content.WriteString("  ←→ or h/l         Horizontal scroll (in schema/preview)\n")
 	content.WriteString("  Enter             Select dataset/table\n")
 	content.WriteString("  Esc               Go back / cancel\n\n")
-	
+
 	content.WriteString(HeaderStyle.Render("Tabs (Right Pane):") + "\n")
 	content.WriteString("  Tab               Next tab (Schema → Preview → Query)\n")
 	content.WriteString("  Shift+Tab         Previous tab (Query → Preview → Schema)\n\n")
-	
+
 	content.WriteString(HeaderStyle.Render("Search & Filter:") + "\n")
 	content.WriteString("  /                 Search/filter datasets or columns\n")
 	content.WriteString("  Esc               Clear filter\n\n")
-	
+
 	content.WriteString(HeaderStyle.Render("Actions:") + "\n")
 	content.WriteString("  y or Ctrl+Y       Copy table name to clipboard\n")
 	content.WriteString("  Ctrl+P            Switch projects\n\n")
-	
+
 	content.WriteString(HeaderStyle.Render("Vim Shortcuts:") + "\n")
 	content.WriteString("  g / Home          Go to top\n")
 	content.WriteString("  G / End           Go to bottom\n")
 	content.WriteString("  Page Up/Down      Page navigation\n\n")
-	
+
 	content.WriteString(HeaderStyle.Render("Other:") + "\n")
 	content.WriteString("  ?                 Show/hide this help\n")
 	content.WriteString("  q or Ctrl+C       Quit\n\n")
-	
+
 	content.WriteString(HelpStyle.Render("Press any key to close help"))
-	
+
 	return content.String()
 }

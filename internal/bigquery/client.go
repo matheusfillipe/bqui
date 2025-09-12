@@ -284,12 +284,12 @@ func (c *Client) ListProjects() ([]*Project, error) {
 		if line == "" {
 			continue
 		}
-		
+
 		parts := strings.Fields(line)
 		if len(parts) >= 1 {
 			project := &Project{
 				ID:   parts[0],
-				Name: parts[0], 
+				Name: parts[0],
 			}
 			if len(parts) > 1 {
 				project.Name = strings.Join(parts[1:], " ")

@@ -67,7 +67,7 @@ test: ## Run tests
 test-short: ## Run tests excluding long-running ones
 	@echo "Running short tests..."
 	@go test -v -short ./pkg/...
-	@go test -v -short ./internal/... -run '^(Test(?!.*Emulator).*)$$'
+	@go test -v -short ./internal/...
 
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."

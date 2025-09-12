@@ -43,7 +43,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create BigQuery client: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing client: %v\n", err)
+		}
+	}()
 
 	model := tui.NewModel(ctx, client)
 
@@ -92,12 +96,12 @@ func detectDefaultProject() string {
 	if projID := os.Getenv("GCP_PROJECT"); projID != "" {
 		return projID
 	}
-	
+
 	// Try to get from gcloud config
 	if projID := getGCloudDefaultProject(); projID != "" {
 		return projID
 	}
-	
+
 	return ""
 }
 
@@ -107,12 +111,12 @@ func getGCloudDefaultProject() string {
 	if err != nil {
 		return ""
 	}
-	
+
 	projectID := strings.TrimSpace(string(output))
 	if projectID == "(unset)" || projectID == "" {
 		return ""
 	}
-	
+
 	return projectID
 }
 

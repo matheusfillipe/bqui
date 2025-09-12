@@ -187,22 +187,22 @@ func (m DatasetListModel) getFilteredTables() []*bigquery.Table {
 
 func (m *DatasetListModel) ensureCursorVisible(totalItems int) {
 	maxVisible := 20
-	
+
 	// If cursor is above the visible area, scroll up
 	if m.cursor < m.viewOffset {
 		m.viewOffset = m.cursor
 	}
-	
+
 	// If cursor is below the visible area, scroll down
 	if m.cursor >= m.viewOffset+maxVisible {
 		m.viewOffset = m.cursor - maxVisible + 1
 	}
-	
+
 	// Make sure viewOffset doesn't go negative
 	if m.viewOffset < 0 {
 		m.viewOffset = 0
 	}
-	
+
 	// Make sure we don't scroll past the end
 	if totalItems > maxVisible && m.viewOffset > totalItems-maxVisible {
 		m.viewOffset = totalItems - maxVisible
@@ -250,14 +250,14 @@ func (m DatasetListModel) View() string {
 			style = SelectedItemStyle
 		}
 
-		prefix := "  "
+		var prefix string
 		if m.showingTables {
 			prefix = "  🗂  "
 		} else {
 			prefix = "  📁 "
 		}
 
-		content.WriteString(style.Render(prefix + item) + "\n")
+		content.WriteString(style.Render(prefix+item) + "\n")
 	}
 
 	if len(filteredItems) > visibleEnd {

@@ -16,75 +16,75 @@ var (
 
 var (
 	BaseStyle = lipgloss.NewStyle().
-		Foreground(TextColor).
-		Background(lipgloss.Color("#1A1A1A"))
+			Foreground(TextColor).
+			Background(lipgloss.Color("#1A1A1A"))
 
 	PaneStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderColor).
-		Padding(0, 1).
-		Margin(0, 1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(BorderColor).
+			Padding(0, 1).
+			Margin(0, 1)
 
 	ActivePaneStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(AccentColor).
-		Padding(0, 1).
-		Margin(0, 1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(AccentColor).
+			Padding(0, 1).
+			Margin(0, 1)
 
 	SelectedItemStyle = lipgloss.NewStyle().
-		Background(SelectedColor).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Bold(true)
+				Background(SelectedColor).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true)
 
 	ItemStyle = lipgloss.NewStyle().
-		Foreground(TextColor)
+			Foreground(TextColor)
 
 	SubtleItemStyle = lipgloss.NewStyle().
-		Foreground(SubtleColor)
+			Foreground(SubtleColor)
 
 	TabActiveStyle = lipgloss.NewStyle().
-		Background(AccentColor).
-		Foreground(lipgloss.Color("#000000")).
-		Padding(0, 2).
-		Bold(true)
+			Background(AccentColor).
+			Foreground(lipgloss.Color("#000000")).
+			Padding(0, 2).
+			Bold(true)
 
 	TabInactiveStyle = lipgloss.NewStyle().
-		Background(BorderColor).
-		Foreground(TextColor).
-		Padding(0, 2)
+				Background(BorderColor).
+				Foreground(TextColor).
+				Padding(0, 2)
 
 	SearchBoxStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(AccentColor).
-		Padding(0, 1).
-		Margin(0, 1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(AccentColor).
+			Padding(0, 1).
+			Margin(0, 1)
 
 	StatusBarStyle = lipgloss.NewStyle().
-		Background(BorderColor).
-		Foreground(TextColor).
-		Padding(0, 1)
+			Background(BorderColor).
+			Foreground(TextColor).
+			Padding(0, 1)
 
 	HelpStyle = lipgloss.NewStyle().
-		Foreground(SubtleColor).
-		Italic(true)
+			Foreground(SubtleColor).
+			Italic(true)
 
 	ErrorStyle = lipgloss.NewStyle().
-		Foreground(ErrorColor).
-		Bold(true)
+			Foreground(ErrorColor).
+			Bold(true)
 
 	SuccessStyle = lipgloss.NewStyle().
-		Foreground(SuccessColor).
-		Bold(true)
+			Foreground(SuccessColor).
+			Bold(true)
 
 	HeaderStyle = lipgloss.NewStyle().
-		Foreground(AccentColor).
-		Bold(true)
+			Foreground(AccentColor).
+			Bold(true)
 
 	DataTypeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFB86C")).
-		Bold(true)
+			Foreground(lipgloss.Color("#FFB86C")).
+			Bold(true)
 
 	TableCellStyle = lipgloss.NewStyle().
-		Padding(0, 1).
-		MaxWidth(20)
+			Padding(0, 1).
+			MaxWidth(20)
 )

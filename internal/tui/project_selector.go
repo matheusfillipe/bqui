@@ -41,7 +41,7 @@ func (m ProjectSelectorModel) Update(msg tea.Msg) (ProjectSelectorModel, tea.Cmd
 
 func (m ProjectSelectorModel) handleKeypress(msg tea.KeyMsg) (ProjectSelectorModel, tea.Cmd) {
 	filteredProjects := m.getFilteredProjects()
-	
+
 	switch {
 	case key.Matches(msg, DefaultKeyMap().Up):
 		if m.cursor > 0 {
@@ -78,7 +78,7 @@ func (m ProjectSelectorModel) getFilteredProjects() []*bigquery.Project {
 	var filtered []*bigquery.Project
 	for _, project := range m.projects {
 		if strings.Contains(strings.ToLower(project.ID), strings.ToLower(m.filter)) ||
-		   strings.Contains(strings.ToLower(project.Name), strings.ToLower(m.filter)) {
+			strings.Contains(strings.ToLower(project.Name), strings.ToLower(m.filter)) {
 			filtered = append(filtered, project)
 		}
 	}

@@ -111,16 +111,6 @@ func (m Model) loadTablePreview() tea.Cmd {
 	}
 }
 
-func (m Model) executeQuery(query string) tea.Cmd {
-	return func() tea.Msg {
-		result, err := m.bqClient.ExecuteQuery(query)
-		if err != nil {
-			return ErrorMsg{Error: fmt.Errorf("failed to execute query: %w", err)}
-		}
-		return QueryResultMsg{Result: result}
-	}
-}
-
 func (m Model) loadProjects() tea.Cmd {
 	return func() tea.Msg {
 		projects, err := m.bqClient.ListProjects()
