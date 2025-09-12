@@ -1,0 +1,52 @@
+# Go build artifacts
+/bqui
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go modules
+go.sum
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+
+# Test coverage
+*.cover
+coverage.txt
+coverage.html
+
+# Temporary files
+tmp/
+temp/
+
+# BigQuery credentials (if any)
+credentials.json
+service-account.json
+
+# Log files
+*.log
+
+# Build directory
+build/
+dist/
