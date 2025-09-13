@@ -101,6 +101,7 @@ vet: ## Run go vet
 deps: ## Download dependencies
 	@echo "Downloading dependencies..."
 	@go mod download
+	@go mod tidy
 	@go mod verify
 
 tidy: ## Tidy up go.mod

@@ -29,6 +29,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xclip
+
     - name: Install build dependencies
       run: make deps
 
@@ -43,13 +48,13 @@ jobs:
 
     - name: Run coverage (excluding emulator tests)
       run: |
-        go test -v -race -coverprofile=coverage.out -short ./pkg/...
+        go test -v -race -coverprofile=coverage-pkg.out -short ./pkg/...
         go test -v -race -coverprofile=coverage-internal.out -short ./internal/...
         
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.out,./coverage-internal.out
+        files: ./coverage-pkg.out,./coverage-internal.out
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false

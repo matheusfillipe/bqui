@@ -10,6 +10,7 @@ func TestCopyAndPaste(t *testing.T) {
 	err := Copy(testText)
 	if err != nil {
 		t.Skipf("Clipboard not available in test environment: %v", err)
+		return
 	}
 
 	result, err := Paste()
@@ -20,4 +21,6 @@ func TestCopyAndPaste(t *testing.T) {
 	if result != testText {
 		t.Errorf("Expected '%s', got '%s'", testText, result)
 	}
+	
+	t.Logf("Successfully copied and pasted: %s", testText)
 }
