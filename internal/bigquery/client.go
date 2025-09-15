@@ -137,7 +137,19 @@ func (c *Client) PreviewTable(datasetID, tableID string, limit int) (*TablePrevi
 		return nil, err
 	}
 
-	query := fmt.Sprintf("SELECT * FROM `%s.%s.%s` LIMIT %d", c.projectID, datasetID, tableID, limit)
+	// Check if table is partitioned and requires partition filter
+	partitionFilter, err := c.getPartitionFilter(datasetID, tableID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check partition info: %w", err)
+	}
+
+	var query string
+	if partitionFilter != "" {
+		query = fmt.Sprintf("SELECT * FROM `%s.%s.%s` %s LIMIT %d", c.projectID, datasetID, tableID, partitionFilter, limit)
+	} else {
+		query = fmt.Sprintf("SELECT * FROM `%s.%s.%s` LIMIT %d", c.projectID, datasetID, tableID, limit)
+	}
+
 	q := c.bqClient.Query(query)
 	q.UseStandardSQL = true
 
@@ -303,6 +315,101 @@ func (c *Client) ListProjects() ([]*Project, error) {
 	})
 
 	return projects, nil
+}
+
+// getPartitionFilter checks if a table is partitioned and returns an appropriate WHERE clause
+func (c *Client) getPartitionFilter(datasetID, tableID string) (string, error) {
+	table := c.bqClient.Dataset(datasetID).Table(tableID)
+	metadata, err := table.Metadata(c.ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get table metadata: %w", err)
+	}
+
+	// Check for time partitioning
+	if metadata.TimePartitioning != nil {
+		if metadata.RequirePartitionFilter {
+			// If no field is specified, it's ingestion-time partitioning
+			if metadata.TimePartitioning.Field == "" {
+				// Use _PARTITIONTIME with a broad date range to ensure results
+				return "WHERE _PARTITIONTIME >= TIMESTAMP('1970-01-01')", nil
+			} else {
+				// Use the specific partition column with a broad range
+				return fmt.Sprintf("WHERE %s >= TIMESTAMP('1970-01-01')", metadata.TimePartitioning.Field), nil
+			}
+		}
+	}
+
+	// Check for range partitioning
+	if metadata.RangePartitioning != nil {
+		if metadata.RequirePartitionFilter {
+			// For range partitioning, use a broad numeric range
+			return fmt.Sprintf("WHERE %s >= 0", metadata.RangePartitioning.Field), nil
+		}
+	}
+
+	// Check for common partitioning patterns by examining column names
+	partitionFilter, err := c.detectPartitionColumns(datasetID, tableID)
+	if err != nil {
+		// If we can't detect via INFORMATION_SCHEMA, continue without filter
+		return "", nil
+	}
+
+	return partitionFilter, nil
+}
+
+// detectPartitionColumns checks for common partition columns using INFORMATION_SCHEMA
+func (c *Client) detectPartitionColumns(datasetID, tableID string) (string, error) {
+	// Common partition column patterns
+	commonPartitionColumns := []string{
+		"_PARTITIONTIME", "_PARTITIONDATE", "_PARTITION_LOAD_TIME",
+		"date", "created_at", "event_date", "transaction_date", "partition_date", "dt",
+	}
+
+	query := fmt.Sprintf(`
+		SELECT column_name, data_type
+		FROM `+"`"+`%s.%s.INFORMATION_SCHEMA.COLUMNS`+"`"+`
+		WHERE table_name = '%s'
+		AND (is_partitioning_column = "YES" OR column_name IN UNNEST(@partition_columns))
+		ORDER BY ordinal_position
+		LIMIT 1`, c.projectID, datasetID, tableID)
+
+	q := c.bqClient.Query(query)
+	q.UseStandardSQL = true
+	q.Parameters = []bigquery.QueryParameter{
+		{Name: "partition_columns", Value: commonPartitionColumns},
+	}
+
+	it, err := q.Read(c.ctx)
+	if err != nil {
+		// INFORMATION_SCHEMA might not be accessible, return no filter
+		return "", nil
+	}
+
+	var row []bigquery.Value
+	err = it.Next(&row)
+	if err == iterator.Done {
+		// No partition columns found
+		return "", nil
+	}
+	if err != nil {
+		return "", nil
+	}
+
+	columnName := row[0].(string)
+	dataType := row[1].(string)
+
+	// Create appropriate filter based on data type
+	switch {
+	case strings.Contains(dataType, "TIMESTAMP"):
+		return fmt.Sprintf("WHERE %s >= TIMESTAMP('1970-01-01')", columnName), nil
+	case strings.Contains(dataType, "DATE"):
+		return fmt.Sprintf("WHERE %s >= DATE('1970-01-01')", columnName), nil
+	case strings.Contains(dataType, "INT") || strings.Contains(dataType, "NUMERIC"):
+		return fmt.Sprintf("WHERE %s >= 0", columnName), nil
+	default:
+		// Unknown type, try timestamp filter
+		return fmt.Sprintf("WHERE %s >= TIMESTAMP('1970-01-01')", columnName), nil
+	}
 }
 
 func (c *Client) SwitchProject(projectID string) error {

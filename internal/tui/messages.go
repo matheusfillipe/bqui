@@ -13,15 +13,18 @@ type DatasetsLoadedMsg struct {
 }
 
 type TablesLoadedMsg struct {
+	DatasetID string
 	Tables []*bigquery.Table
 }
 
 type TableSchemaLoadedMsg struct {
+	DatasetID string
 	TableID string
 	Schema  *bigquery.TableSchema
 }
 
 type TablePreviewLoadedMsg struct {
+	DatasetID string
 	TableID string
 	Preview *bigquery.TablePreview
 }
@@ -71,7 +74,7 @@ func (m Model) loadTables() tea.Cmd {
 		if err != nil {
 			return ErrorMsg{Error: fmt.Errorf("failed to load tables for dataset %s: %w", datasetID, err)}
 		}
-		return TablesLoadedMsg{Tables: tables}
+		return TablesLoadedMsg{DatasetID: datasetID, Tables: tables}
 	}
 }
 
@@ -87,6 +90,7 @@ func (m Model) loadTableSchema() tea.Cmd {
 			return ErrorMsg{Error: fmt.Errorf("failed to load schema for table %s: %w", table.ID, err)}
 		}
 		return TableSchemaLoadedMsg{
+			DatasetID: table.DatasetID,
 			TableID: table.ID,
 			Schema:  schema,
 		}
@@ -105,6 +109,7 @@ func (m Model) loadTablePreview() tea.Cmd {
 			return ErrorMsg{Error: fmt.Errorf("failed to load preview for table %s: %w", table.ID, err)}
 		}
 		return TablePreviewLoadedMsg{
+			DatasetID: table.DatasetID,
 			TableID: table.ID,
 			Preview: preview,
 		}

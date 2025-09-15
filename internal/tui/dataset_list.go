@@ -20,6 +20,7 @@ type DatasetListModel struct {
 	showingTables   bool
 	viewOffset      int
 	tableSelected   bool
+	height          int
 }
 
 func NewDatasetListModel() DatasetListModel {
@@ -33,6 +34,7 @@ func NewDatasetListModel() DatasetListModel {
 		showingTables:   false,
 		viewOffset:      0,
 		tableSelected:   false,
+		height:          20,
 	}
 }
 
@@ -72,7 +74,7 @@ func (m DatasetListModel) handleKeypress(msg tea.KeyMsg) (DatasetListModel, tea.
 	case key.Matches(msg, DefaultKeyMap().VimBottom), key.Matches(msg, DefaultKeyMap().Bottom):
 		m.cursor = len(filteredItems) - 1
 		// Scroll to show the bottom item
-		maxVisible := 20
+		maxVisible := m.getMaxVisible()
 		if len(filteredItems) > maxVisible {
 			m.viewOffset = len(filteredItems) - maxVisible
 		} else {
@@ -98,6 +100,7 @@ func (m DatasetListModel) handleKeypress(msg tea.KeyMsg) (DatasetListModel, tea.
 				m.showingTables = true
 				m.cursor = 0
 				m.selectedTable = nil // Reset table selection
+				m.tables = make([]*bigquery.Table, 0) // Clear old table list immediately
 				return m, nil
 			}
 		} else {
@@ -119,6 +122,7 @@ func (m DatasetListModel) handleKeypress(msg tea.KeyMsg) (DatasetListModel, tea.
 		if !m.showingTables && m.selectedDataset != nil {
 			m.showingTables = true
 			m.cursor = 0
+			m.tables = make([]*bigquery.Table, 0) // Clear old table list immediately
 		}
 	}
 
@@ -185,8 +189,27 @@ func (m DatasetListModel) getFilteredTables() []*bigquery.Table {
 	return filtered
 }
 
+func (m *DatasetListModel) getMaxVisible() int {
+	// Calculate actual space used by our UI elements within the content area
+	titleHeight := 2 // Title + blank line after
+	filterHeight := 0
+	if m.filter != "" {
+		filterHeight = 2 // Filter display + blank line
+	}
+	infoHeight := 1 // Info line at bottom
+	paddingHeight := 1 // Some breathing room
+	
+	// Available space for list items
+	available := m.height - titleHeight - filterHeight - infoHeight - paddingHeight
+	
+	if available < 1 {
+		available = 1 // Show at least one item
+	}
+	return available
+}
+
 func (m *DatasetListModel) ensureCursorVisible(totalItems int) {
-	maxVisible := 20
+	maxVisible := m.getMaxVisible()
 
 	// If cursor is above the visible area, scroll up
 	if m.cursor < m.viewOffset {
@@ -209,12 +232,26 @@ func (m *DatasetListModel) ensureCursorVisible(totalItems int) {
 	}
 }
 
+func (m DatasetListModel) ViewWithLoading(loadingDatasets, loadingTables bool) string {
+	return m.viewWithLoadingState(loadingDatasets, loadingTables)
+}
+
 func (m DatasetListModel) View() string {
+	return m.viewWithLoadingState(false, false)
+}
+
+func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bool) string {
 	var content strings.Builder
 
 	title := "📊 Datasets"
+	if loadingDatasets {
+		title += " (Loading...)"
+	}
 	if m.showingTables {
 		title = fmt.Sprintf("📋 Tables in %s", m.selectedDataset.ID)
+		if loadingTables {
+			title += " (Loading...)"
+		}
 	}
 
 	content.WriteString(HeaderStyle.Render(title) + "\n\n")
@@ -235,8 +272,15 @@ func (m DatasetListModel) View() string {
 		return content.String()
 	}
 
+	maxVisible := m.getMaxVisible()
+	
+	// Debug: Let's add some bounds checking
+	if maxVisible <= 0 {
+		maxVisible = 10 // Fallback
+	}
+	
 	visibleStart := m.viewOffset
-	visibleEnd := visibleStart + 20
+	visibleEnd := visibleStart + maxVisible
 
 	if visibleEnd > len(filteredItems) {
 		visibleEnd = len(filteredItems)

@@ -14,6 +14,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Helper functions for visual selection (duplicated from table_detail.go for app.go)
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 type KeyMap struct {
 	Up          key.Binding
 	Down        key.Binding
@@ -167,6 +182,12 @@ type Model struct {
 	err             error
 	statusMessage   string
 	showProjectList bool
+	loadingDatasets bool
+	loadingTables   bool
+	loadingSchema   bool
+	loadingPreview  bool
+	lastSelectedDatasetID string
+	lastSelectedTableID   string
 }
 
 func NewModel(ctx context.Context, bqClient *bigquery.Client) Model {
@@ -182,12 +203,17 @@ func NewModel(ctx context.Context, bqClient *bigquery.Client) Model {
 		help:            help.New(),
 		showHelp:        false,
 		ready:           false,
+		loadingDatasets: false,
+		loadingTables:   false,
+		loadingSchema:   false,
+		loadingPreview:  false,
 	}
 
 	return m
 }
 
 func (m Model) Init() tea.Cmd {
+	m.loadingDatasets = true
 	return tea.Batch(
 		m.datasetList.Init(),
 		m.loadDatasets(),
@@ -202,6 +228,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		// Heights will be calculated dynamically in View() method
 		return m, nil
 
 	case tea.KeyMsg:
@@ -235,7 +262,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showHelp = false
 				return m, nil
 			}
+			// For table detail, let the component handle ESC first
+			// If it returns the same model unchanged, then we handle it at app level
 			if m.focus == FocusTableDetail {
+				// Try to let table detail handle ESC internally first
+				updatedTableDetail, cmd := m.tableDetail.handleKeypress(msg)
+				
+				// If the table detail component changed state, it handled the ESC
+				if updatedTableDetail.visualMode != m.tableDetail.visualMode ||
+				   updatedTableDetail.schemaFilter != m.tableDetail.schemaFilter ||
+				   updatedTableDetail.previewFilter != m.tableDetail.previewFilter ||
+				   updatedTableDetail.showSchemaFilter != m.tableDetail.showSchemaFilter ||
+				   updatedTableDetail.showPreviewFilter != m.tableDetail.showPreviewFilter {
+					m.tableDetail = updatedTableDetail
+					return m, cmd
+				}
+				
+				// Table detail didn't handle it, so switch focus to dataset list
 				m.focus = FocusDatasetList
 				return m, nil
 			}
@@ -266,29 +309,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DatasetsLoadedMsg:
 		m.datasetList.datasets = msg.Datasets
+		m.loadingDatasets = false
 		m.statusMessage = fmt.Sprintf("Loaded %d datasets", len(msg.Datasets))
 		return m, nil
 
 	case TablesLoadedMsg:
-		m.datasetList.tables = msg.Tables
-		m.statusMessage = fmt.Sprintf("Loaded %d tables", len(msg.Tables))
+		// Only accept tables if they match the currently selected dataset
+		if m.datasetList.selectedDataset != nil && m.datasetList.selectedDataset.ID == msg.DatasetID {
+			m.datasetList.tables = msg.Tables
+			m.loadingTables = false
+			m.statusMessage = fmt.Sprintf("Loaded %d tables from %s", len(msg.Tables), msg.DatasetID)
+		} else {
+			// Ignore stale response from previous dataset selection
+			m.statusMessage = fmt.Sprintf("Ignored stale table response for %s", msg.DatasetID)
+		}
 		return m, nil
 
 	case TableSchemaLoadedMsg:
-		m.tableDetail.schema = msg.Schema
-		m.tableDetail.currentTableName = msg.TableID
-		m.tableDetail.schemaRowCursor = 0 // Reset schema row cursor for new data
-		m.statusMessage = fmt.Sprintf("Loaded schema for %s", msg.TableID)
+		// Only accept schema if it matches the currently selected table
+		if m.datasetList.selectedTable != nil && 
+		   m.datasetList.selectedTable.DatasetID == msg.DatasetID && 
+		   m.datasetList.selectedTable.ID == msg.TableID {
+			m.tableDetail.schema = msg.Schema
+			m.tableDetail.currentTableName = msg.TableID
+			m.tableDetail.schemaRowCursor = 0 // Reset schema row cursor for new data
+			m.loadingSchema = false
+			m.statusMessage = fmt.Sprintf("Loaded schema for %s.%s", msg.DatasetID, msg.TableID)
+		} else {
+			// Ignore stale response from previous table selection
+			m.statusMessage = fmt.Sprintf("Ignored stale schema response for %s.%s", msg.DatasetID, msg.TableID)
+		}
 		return m, nil
 
 	case TablePreviewLoadedMsg:
-		m.tableDetail.preview = msg.Preview
-		if m.tableDetail.currentTableName == "" {
-			m.tableDetail.currentTableName = msg.TableID
+		// Only accept preview if it matches the currently selected table
+		if m.datasetList.selectedTable != nil && 
+		   m.datasetList.selectedTable.DatasetID == msg.DatasetID && 
+		   m.datasetList.selectedTable.ID == msg.TableID {
+			m.tableDetail.preview = msg.Preview
+			if m.tableDetail.currentTableName == "" {
+				m.tableDetail.currentTableName = msg.TableID
+			}
+			m.tableDetail.previewRowCursor = 0 // Reset row cursor for new data
+			m.tableDetail.previewColCursor = 0 // Reset column cursor for new data
+			m.loadingPreview = false
+			m.statusMessage = fmt.Sprintf("Loaded preview for %s.%s", msg.DatasetID, msg.TableID)
+		} else {
+			// Ignore stale response from previous table selection
+			m.statusMessage = fmt.Sprintf("Ignored stale preview response for %s.%s", msg.DatasetID, msg.TableID)
 		}
-		m.tableDetail.previewRowCursor = 0 // Reset row cursor for new data
-		m.tableDetail.previewColCursor = 0 // Reset column cursor for new data
-		m.statusMessage = fmt.Sprintf("Loaded preview for %s", msg.TableID)
 		return m, nil
 
 	case ErrorMsg:
@@ -309,6 +378,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.focus = FocusDatasetList
 		m.datasetList = NewDatasetListModel() // Reset dataset list
 		m.tableDetail = NewTableDetailModel() // Reset table detail
+		m.loadingDatasets = true
+		m.lastSelectedDatasetID = ""
+		m.lastSelectedTableID = ""
 		return m, m.loadDatasets()
 	}
 
@@ -347,10 +419,27 @@ func (m Model) updateFocusedComponent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Load preview when hovering over tables, but don't switch focus
 		if m.datasetList.selectedDataset != nil && m.datasetList.selectedTable != nil {
-			return m, tea.Batch(cmd, m.loadTableSchema(), m.loadTablePreview())
+			// Only load if table changed to prevent race conditions
+			tableKey := fmt.Sprintf("%s.%s", m.datasetList.selectedDataset.ID, m.datasetList.selectedTable.ID)
+			if m.lastSelectedTableID != tableKey {
+				m.lastSelectedTableID = tableKey
+				m.loadingSchema = true
+				m.loadingPreview = true
+				return m, tea.Batch(cmd, m.loadTableSchema(), m.loadTablePreview())
+			}
 		}
 		if m.datasetList.selectedDataset != nil {
-			return m, tea.Batch(cmd, m.loadTables())
+			// Only load if dataset changed to prevent race conditions
+			if m.lastSelectedDatasetID != m.datasetList.selectedDataset.ID {
+				m.lastSelectedDatasetID = m.datasetList.selectedDataset.ID
+				m.lastSelectedTableID = "" // Clear last selected table
+				// Clear table details immediately when dataset changes
+				m.tableDetail.schema = nil
+				m.tableDetail.preview = nil
+				m.tableDetail.currentTableName = ""
+				m.loadingTables = true
+				return m, tea.Batch(cmd, m.loadTables())
+			}
 		}
 		return m, cmd
 
@@ -381,15 +470,44 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 	}
 
 	if m.focus == FocusTableDetail && m.tableDetail.activeTab == PreviewTab && m.tableDetail.preview != nil {
-		if len(m.tableDetail.preview.Rows) > m.tableDetail.previewRowCursor {
-			row := m.tableDetail.preview.Rows[m.tableDetail.previewRowCursor]
-			if len(row) > m.tableDetail.previewColCursor {
-				cellValue := fmt.Sprintf("%v", row[m.tableDetail.previewColCursor])
+		// Check if in visual mode - copy all selected rows
+		if m.tableDetail.visualMode {
+			filteredRows := m.tableDetail.getFilteredPreviewRows()
+			start := min(m.tableDetail.visualStartRow, m.tableDetail.visualEndRow)
+			end := max(m.tableDetail.visualStartRow, m.tableDetail.visualEndRow)
+			
+			var selectedData []string
+			for i := start; i <= end && i < len(filteredRows); i++ {
+				row := filteredRows[i]
+				var rowData []string
+				for _, cell := range row {
+					rowData = append(rowData, fmt.Sprintf("%v", cell))
+				}
+				selectedData = append(selectedData, strings.Join(rowData, "\t"))
+			}
+			
+			if len(selectedData) > 0 {
+				copyText := strings.Join(selectedData, "\n")
 				return m, func() tea.Msg {
-					if err := clipboard.Copy(cellValue); err != nil {
+					if err := clipboard.Copy(copyText); err != nil {
 						return ErrorMsg{Error: err}
 					}
-					return CopySuccessMsg{Text: fmt.Sprintf("Copied cell: %s", cellValue)}
+					return CopySuccessMsg{Text: fmt.Sprintf("Copied %d rows", len(selectedData))}
+				}
+			}
+		} else {
+			// Single cell copy mode
+			filteredRows := m.tableDetail.getFilteredPreviewRows()
+			if len(filteredRows) > m.tableDetail.previewRowCursor {
+				row := filteredRows[m.tableDetail.previewRowCursor]
+				if len(row) > m.tableDetail.previewColCursor {
+					cellValue := fmt.Sprintf("%v", row[m.tableDetail.previewColCursor])
+					return m, func() tea.Msg {
+						if err := clipboard.Copy(cellValue); err != nil {
+							return ErrorMsg{Error: err}
+						}
+						return CopySuccessMsg{Text: fmt.Sprintf("Copied cell: %s", cellValue)}
+					}
 				}
 			}
 		}
@@ -426,34 +544,76 @@ func (m Model) View() string {
 
 	leftPaneWidth := m.width / 3
 	rightPaneWidth := m.width - leftPaneWidth - 4
+	leftPaneHeight := m.height - 6
+	rightPaneHeight := m.height - 6
 
-	leftPaneStyle := PaneStyle.Width(leftPaneWidth).Height(m.height - 6)
-	rightPaneStyle := PaneStyle.Width(rightPaneWidth).Height(m.height - 6)
+	leftPaneStyle := PaneStyle.Width(leftPaneWidth).Height(leftPaneHeight)
+	rightPaneStyle := PaneStyle.Width(rightPaneWidth).Height(rightPaneHeight)
 
 	switch m.focus {
 	case FocusDatasetList:
-		leftPaneStyle = ActivePaneStyle.Width(leftPaneWidth).Height(m.height - 6)
+		leftPaneStyle = ActivePaneStyle.Width(leftPaneWidth).Height(leftPaneHeight)
 	case FocusTableDetail:
-		rightPaneStyle = ActivePaneStyle.Width(rightPaneWidth).Height(m.height - 6)
+		rightPaneStyle = ActivePaneStyle.Width(rightPaneWidth).Height(rightPaneHeight)
 	}
 
-	leftPane := leftPaneStyle.Render(m.datasetList.View())
-	rightPane := rightPaneStyle.Render(m.tableDetail.View())
-
-	mainView := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
-
+	// Calculate actual content height based on rendered status and search bars
 	statusBar := m.renderStatusBar()
 	searchBar := ""
 	if m.focus == FocusSearch {
 		searchBar = SearchBoxStyle.Render(fmt.Sprintf("Search: %s", m.search.View()))
 	}
+	
+	// Calculate heights of UI elements
+	projectHeader := m.renderProjectHeader()
+	projectHeaderHeight := lipgloss.Height(projectHeader)
+	statusHeight := lipgloss.Height(statusBar)
+	searchHeight := lipgloss.Height(searchBar)
+	
+	// Available height for content panes (account for pane borders + padding)
+	// PaneStyle has rounded border (2 lines) + padding, so subtract 4 lines total
+	paneHeight := m.height - projectHeaderHeight - statusHeight - searchHeight
+	contentHeight := paneHeight - 4 // Account for pane border and padding
+	if contentHeight < 5 {
+		contentHeight = 5 // Minimum height
+	}
+	
+	// Update component heights with actual available space inside the panes
+	m.datasetList.height = contentHeight
+	m.tableDetail.height = contentHeight
+	
+	// Update component widths with actual pane widths (account for pane padding)
+	m.tableDetail.width = rightPaneWidth - 4 // Account for pane border and padding
+
+	leftPane := leftPaneStyle.Render(m.datasetList.ViewWithLoading(m.loadingDatasets, m.loadingTables))
+	rightPane := rightPaneStyle.Render(m.tableDetail.ViewWithLoading(m.loadingSchema, m.loadingPreview))
+
+	mainView := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
+		projectHeader,
 		mainView,
 		searchBar,
 		statusBar,
 	)
+}
+
+func (m Model) renderProjectHeader() string {
+	projectID := m.bqClient.GetProjectID()
+	if projectID == "" {
+		projectID = "No project selected"
+	}
+	
+	headerText := fmt.Sprintf("🔗 Google Cloud Project: %s", projectID)
+	headerStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("#2D2D2D")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Bold(true).
+		Padding(0, 1).
+		Width(m.width)
+	
+	return headerStyle.Render(headerText)
 }
 
 func (m Model) renderStatusBar() string {
