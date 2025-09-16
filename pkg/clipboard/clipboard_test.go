@@ -21,6 +21,6 @@ func TestCopyAndPaste(t *testing.T) {
 	if result != testText {
 		t.Errorf("Expected '%s', got '%s'", testText, result)
 	}
-	
+
 	t.Logf("Successfully copied and pasted: %s", testText)
 }

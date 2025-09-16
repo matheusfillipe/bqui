@@ -120,8 +120,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("pgdown", "page down"),
 		),
 		ProjectList: key.NewBinding(
-			key.WithKeys("ctrl+p"),
-			key.WithHelp("ctrl+p", "project selector"),
+			key.WithKeys("ctrl+space", "alt+p"),
+			key.WithHelp("ctrl+space/alt+p", "project selector"),
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
@@ -166,26 +166,26 @@ const (
 )
 
 type Model struct {
-	ctx             context.Context
-	bqClient        *bigquery.Client
-	datasetList     DatasetListModel
-	tableDetail     TableDetailModel
-	projectSelector ProjectSelectorModel
-	search          SearchModel
-	focus           FocusState
-	keyMap          KeyMap
-	help            help.Model
-	showHelp        bool
-	width           int
-	height          int
-	ready           bool
-	err             error
-	statusMessage   string
-	showProjectList bool
-	loadingDatasets bool
-	loadingTables   bool
-	loadingSchema   bool
-	loadingPreview  bool
+	ctx                   context.Context
+	bqClient              *bigquery.Client
+	datasetList           DatasetListModel
+	tableDetail           TableDetailModel
+	projectSelector       ProjectSelectorModel
+	search                SearchModel
+	focus                 FocusState
+	keyMap                KeyMap
+	help                  help.Model
+	showHelp              bool
+	width                 int
+	height                int
+	ready                 bool
+	err                   error
+	statusMessage         string
+	showProjectList       bool
+	loadingDatasets       bool
+	loadingTables         bool
+	loadingSchema         bool
+	loadingPreview        bool
 	lastSelectedDatasetID string
 	lastSelectedTableID   string
 }
@@ -267,17 +267,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == FocusTableDetail {
 				// Try to let table detail handle ESC internally first
 				updatedTableDetail, cmd := m.tableDetail.handleKeypress(msg)
-				
+
 				// If the table detail component changed state, it handled the ESC
 				if updatedTableDetail.visualMode != m.tableDetail.visualMode ||
-				   updatedTableDetail.schemaFilter != m.tableDetail.schemaFilter ||
-				   updatedTableDetail.previewFilter != m.tableDetail.previewFilter ||
-				   updatedTableDetail.showSchemaFilter != m.tableDetail.showSchemaFilter ||
-				   updatedTableDetail.showPreviewFilter != m.tableDetail.showPreviewFilter {
+					updatedTableDetail.schemaFilter != m.tableDetail.schemaFilter ||
+					updatedTableDetail.previewFilter != m.tableDetail.previewFilter ||
+					updatedTableDetail.showSchemaFilter != m.tableDetail.showSchemaFilter ||
+					updatedTableDetail.showPreviewFilter != m.tableDetail.showPreviewFilter {
 					m.tableDetail = updatedTableDetail
 					return m, cmd
 				}
-				
+
 				// Table detail didn't handle it, so switch focus to dataset list
 				m.focus = FocusDatasetList
 				return m, nil
@@ -327,9 +327,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TableSchemaLoadedMsg:
 		// Only accept schema if it matches the currently selected table
-		if m.datasetList.selectedTable != nil && 
-		   m.datasetList.selectedTable.DatasetID == msg.DatasetID && 
-		   m.datasetList.selectedTable.ID == msg.TableID {
+		if m.datasetList.selectedTable != nil &&
+			m.datasetList.selectedTable.DatasetID == msg.DatasetID &&
+			m.datasetList.selectedTable.ID == msg.TableID {
 			m.tableDetail.schema = msg.Schema
 			m.tableDetail.currentTableName = msg.TableID
 			m.tableDetail.schemaRowCursor = 0 // Reset schema row cursor for new data
@@ -343,9 +343,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TablePreviewLoadedMsg:
 		// Only accept preview if it matches the currently selected table
-		if m.datasetList.selectedTable != nil && 
-		   m.datasetList.selectedTable.DatasetID == msg.DatasetID && 
-		   m.datasetList.selectedTable.ID == msg.TableID {
+		if m.datasetList.selectedTable != nil &&
+			m.datasetList.selectedTable.DatasetID == msg.DatasetID &&
+			m.datasetList.selectedTable.ID == msg.TableID {
 			m.tableDetail.preview = msg.Preview
 			if m.tableDetail.currentTableName == "" {
 				m.tableDetail.currentTableName = msg.TableID
@@ -358,6 +358,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Ignore stale response from previous table selection
 			m.statusMessage = fmt.Sprintf("Ignored stale preview response for %s.%s", msg.DatasetID, msg.TableID)
 		}
+		return m, nil
+
+	case ProjectsLoadedMsg:
+		m.projectSelector.projects = msg.Projects
+		m.statusMessage = fmt.Sprintf("Loaded %d projects", len(msg.Projects))
 		return m, nil
 
 	case ErrorMsg:
@@ -475,7 +480,7 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 			filteredRows := m.tableDetail.getFilteredPreviewRows()
 			start := min(m.tableDetail.visualStartRow, m.tableDetail.visualEndRow)
 			end := max(m.tableDetail.visualStartRow, m.tableDetail.visualEndRow)
-			
+
 			var selectedData []string
 			for i := start; i <= end && i < len(filteredRows); i++ {
 				row := filteredRows[i]
@@ -485,7 +490,7 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 				}
 				selectedData = append(selectedData, strings.Join(rowData, "\t"))
 			}
-			
+
 			if len(selectedData) > 0 {
 				copyText := strings.Join(selectedData, "\n")
 				return m, func() tea.Msg {
@@ -563,13 +568,13 @@ func (m Model) View() string {
 	if m.focus == FocusSearch {
 		searchBar = SearchBoxStyle.Render(fmt.Sprintf("Search: %s", m.search.View()))
 	}
-	
+
 	// Calculate heights of UI elements
 	projectHeader := m.renderProjectHeader()
 	projectHeaderHeight := lipgloss.Height(projectHeader)
 	statusHeight := lipgloss.Height(statusBar)
 	searchHeight := lipgloss.Height(searchBar)
-	
+
 	// Available height for content panes (account for pane borders + padding)
 	// PaneStyle has rounded border (2 lines) + padding, so subtract 4 lines total
 	paneHeight := m.height - projectHeaderHeight - statusHeight - searchHeight
@@ -577,11 +582,11 @@ func (m Model) View() string {
 	if contentHeight < 5 {
 		contentHeight = 5 // Minimum height
 	}
-	
+
 	// Update component heights with actual available space inside the panes
 	m.datasetList.height = contentHeight
 	m.tableDetail.height = contentHeight
-	
+
 	// Update component widths with actual pane widths (account for pane padding)
 	m.tableDetail.width = rightPaneWidth - 4 // Account for pane border and padding
 
@@ -604,7 +609,7 @@ func (m Model) renderProjectHeader() string {
 	if projectID == "" {
 		projectID = "No project selected"
 	}
-	
+
 	headerText := fmt.Sprintf("🔗 Google Cloud Project: %s", projectID)
 	headerStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("#2D2D2D")).
@@ -612,7 +617,7 @@ func (m Model) renderProjectHeader() string {
 		Bold(true).
 		Padding(0, 1).
 		Width(m.width)
-	
+
 	return headerStyle.Render(headerText)
 }
 
@@ -665,7 +670,7 @@ func (m Model) renderCustomHelp() string {
 
 	content.WriteString(HeaderStyle.Render("Actions:") + "\n")
 	content.WriteString("  y or Ctrl+Y       Copy table name to clipboard\n")
-	content.WriteString("  Ctrl+P            Switch projects\n\n")
+	content.WriteString("  Ctrl+Space/Alt+P  Switch projects\n\n")
 
 	content.WriteString(HeaderStyle.Render("Vim Shortcuts:") + "\n")
 	content.WriteString("  g / Home          Go to top\n")

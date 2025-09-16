@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.9
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/goccy/bigquery-emulator v0.6.6
+	github.com/sahilm/fuzzy v0.1.1
 	google.golang.org/api v0.247.0
 )
 

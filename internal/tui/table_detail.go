@@ -37,11 +37,11 @@ type TableDetailModel struct {
 	height           int
 	width            int
 	// Visual selection mode
-	visualMode       bool
-	visualStartRow   int
-	visualEndRow     int
+	visualMode     bool
+	visualStartRow int
+	visualEndRow   int
 	// Preview filtering
-	previewFilter    string
+	previewFilter     string
 	showPreviewFilter bool
 }
 
@@ -51,23 +51,23 @@ func NewTableDetailModel() TableDetailModel {
 	queryInput.Focus()
 
 	return TableDetailModel{
-		schema:           nil,
-		preview:          nil,
-		queryResult:      nil,
-		activeTab:        SchemaTab,
-		queryInput:       queryInput,
-		scrollOffset:     0,
-		horizontalOffset: 0,
-		schemaFilter:     "",
-		showSchemaFilter: false,
-		previewRowCursor: 0,
-		previewColCursor: 0,
-		schemaRowCursor:  0,
-		height:           20,
-		visualMode:       false,
-		visualStartRow:   0,
-		visualEndRow:     0,
-		previewFilter:    "",
+		schema:            nil,
+		preview:           nil,
+		queryResult:       nil,
+		activeTab:         SchemaTab,
+		queryInput:        queryInput,
+		scrollOffset:      0,
+		horizontalOffset:  0,
+		schemaFilter:      "",
+		showSchemaFilter:  false,
+		previewRowCursor:  0,
+		previewColCursor:  0,
+		schemaRowCursor:   0,
+		height:            20,
+		visualMode:        false,
+		visualStartRow:    0,
+		visualEndRow:      0,
+		previewFilter:     "",
 		showPreviewFilter: false,
 	}
 }
@@ -444,14 +444,14 @@ func (m *TableDetailModel) calculateColumnWidths() []int {
 	if len(m.preview.Headers) == 0 {
 		return []int{}
 	}
-	
+
 	colWidths := make([]int, len(m.preview.Headers))
 	minColWidth := 8
 	maxColWidth := 30
 
 	// Use filtered rows for width calculation to be consistent with rendering
 	filteredRows := m.getFilteredPreviewRows()
-	
+
 	for i, header := range m.preview.Headers {
 		width := len(header)
 		for _, row := range filteredRows {
@@ -470,7 +470,7 @@ func (m *TableDetailModel) calculateColumnWidths() []int {
 		}
 		colWidths[i] = width
 	}
-	
+
 	return colWidths
 }
 
@@ -497,18 +497,18 @@ func (m *TableDetailModel) ensurePreviewColumnVisible() {
 	// Check if the cursor column is already fully visible
 	visibleStart := m.horizontalOffset
 	visibleEnd := m.horizontalOffset + maxDisplayWidth
-	
+
 	// If column is already fully visible, don't scroll at all
 	if selectedColStart >= visibleStart && selectedColEnd <= visibleEnd {
 		return
 	}
-	
+
 	// Special case: if we're at the first column, ensure horizontal offset is 0
 	if m.previewColCursor == 0 {
 		m.horizontalOffset = 0
 		return
 	}
-	
+
 	// Minimal scrolling - only scroll just enough to make the column visible
 	if selectedColStart < visibleStart {
 		// Column starts before visible area - scroll left just enough to show the start
@@ -770,14 +770,14 @@ func (m TableDetailModel) renderPreviewTab() string {
 		}
 		row := filteredRows[absoluteRowIdx]
 		currentPos := 0
-		
+
 		rowContent := ""
 
 		for i, cell := range row {
 			if i >= len(m.preview.Headers) {
 				break
 			}
-			
+
 			// Calculate cell position and visibility
 			cellWidth := colWidths[i] + 1 // +1 for space
 			cellStart := currentPos
@@ -793,29 +793,29 @@ func (m TableDetailModel) renderPreviewTab() string {
 			cellStr := fmt.Sprintf("%v", cell)
 			cellText := truncate(cellStr, colWidths[i])
 			cellFormatted := fmt.Sprintf("%-*s", colWidths[i], cellText)
-			
+
 			// Handle partial visibility by trimming the cell content appropriately
 			visibleStart := 0
 			visibleEnd := len(cellFormatted)
-			
+
 			if cellStart < m.horizontalOffset {
 				visibleStart = m.horizontalOffset - cellStart
 			}
 			if cellEnd > m.horizontalOffset+availableWidth {
 				visibleEnd -= (cellEnd - (m.horizontalOffset + availableWidth))
 			}
-			
+
 			// Extract visible portion of cell
 			if visibleStart < visibleEnd && visibleStart < len(cellFormatted) {
 				if visibleEnd > len(cellFormatted) {
 					visibleEnd = len(cellFormatted)
 				}
 				visibleCell := cellFormatted[visibleStart:visibleEnd]
-				
+
 				// Apply single styling based on selection state (use absoluteRowIdx to match cursor logic)
 				isVisualSelected := m.visualMode && m.isRowInVisualSelection(absoluteRowIdx)
 				isCursorPosition := absoluteRowIdx == m.previewRowCursor && i == m.previewColCursor
-				
+
 				// Apply proper styling - cursor position is absolute index in filtered data
 				var styledCell string
 				if isCursorPosition {
@@ -827,18 +827,18 @@ func (m TableDetailModel) renderPreviewTab() string {
 				} else {
 					styledCell = TableCellStyle.Render(visibleCell)
 				}
-				
+
 				rowContent += styledCell
-				
+
 				// Add space separator only if we're not at the edge of visibility
 				if cellEnd <= m.horizontalOffset+availableWidth {
 					rowContent += " "
 				}
 			}
-			
+
 			currentPos += cellWidth
 		}
-		
+
 		// Add the complete row content to the main content
 		content.WriteString(rowContent + "\n")
 		displayRowIdx++
@@ -930,21 +930,21 @@ func truncate(s string, length int) string {
 
 func (m TableDetailModel) getMaxVisibleSchema() int {
 	// Calculate actual space used by our UI elements within the content area
-	tabHeight := 2    // Tab bar + blank line
-	titleHeight := 1  // "🏗 Table Schema" header
+	tabHeight := 2       // Tab bar + blank line
+	titleHeight := 1     // "🏗 Table Schema" header
 	tableNameHeight := 1 // Table name line
-	headerHeight := 2 // Column headers + separator line
-	helpHeight := 2   // Help text at bottom
-	paddingHeight := 1 // Some breathing room
-	
+	headerHeight := 2    // Column headers + separator line
+	helpHeight := 2      // Help text at bottom
+	paddingHeight := 1   // Some breathing room
+
 	filterHeight := 0
 	if m.showSchemaFilter || m.schemaFilter != "" {
 		filterHeight = 2 // Filter display + blank
 	}
-	
+
 	// Available space for schema rows
 	available := m.height - tabHeight - titleHeight - tableNameHeight - headerHeight - helpHeight - filterHeight - paddingHeight
-	
+
 	if available < 1 {
 		available = 1 // Show at least one row
 	}
@@ -959,10 +959,10 @@ func (m TableDetailModel) getMaxVisiblePreview() int {
 	headerHeight := 2    // Column headers + separator
 	helpHeight := 2      // Help text at bottom
 	paddingHeight := 1   // Some breathing room
-	
+
 	// Available space for data rows
 	available := m.height - tabHeight - titleHeight - tableNameHeight - headerHeight - helpHeight - paddingHeight
-	
+
 	if available < 1 {
 		available = 1 // Show at least one row
 	}
@@ -1062,20 +1062,20 @@ func (m TableDetailModel) handleEscapeKey() (TableDetailModel, tea.Cmd) {
 		m.visualEndRow = 0
 		return m, nil
 	}
-	
+
 	// Priority 2: Clear active search filters
 	if m.activeTab == SchemaTab && m.schemaFilter != "" {
 		m.schemaFilter = ""
 		m.schemaRowCursor = 0
 		return m, nil
 	}
-	
+
 	if m.activeTab == PreviewTab && m.previewFilter != "" {
 		m.previewFilter = ""
 		m.previewRowCursor = 0
 		return m, nil
 	}
-	
+
 	// Priority 3: Return focus to dataset list (handled by app.go)
 	// This will be caught by app.go's escape handling
 	return m, nil
@@ -1086,14 +1086,14 @@ func (m TableDetailModel) getFilteredPreviewRows() [][]interface{} {
 	if m.preview == nil {
 		return nil
 	}
-	
+
 	if m.previewFilter == "" {
 		return m.preview.Rows
 	}
-	
+
 	var filtered [][]interface{}
 	filter := strings.ToLower(m.previewFilter)
-	
+
 	for _, row := range m.preview.Rows {
 		// Check if any cell in the row matches the filter
 		rowMatches := false
@@ -1104,12 +1104,12 @@ func (m TableDetailModel) getFilteredPreviewRows() [][]interface{} {
 				break
 			}
 		}
-		
+
 		if rowMatches {
 			filtered = append(filtered, row)
 		}
 	}
-	
+
 	return filtered
 }
 
@@ -1120,10 +1120,10 @@ func (m TableDetailModel) isRowInVisualSelection(rowIdx int) bool {
 	if !m.visualMode {
 		return false
 	}
-	
+
 	start := min(m.visualStartRow, m.visualEndRow)
 	end := max(m.visualStartRow, m.visualEndRow)
-	
+
 	return rowIdx >= start && rowIdx <= end
 }
 
@@ -1132,21 +1132,21 @@ func (m *TableDetailModel) forceScrollToColumn(colIndex int) {
 	if m.preview == nil || colIndex < 0 || colIndex >= len(m.preview.Headers) {
 		return
 	}
-	
+
 	// Use shared column width calculation for consistency
 	colWidths := m.calculateColumnWidths()
-	
+
 	// Calculate start position of target column
 	targetColStart := 0
 	for i := 0; i < colIndex; i++ {
 		targetColStart += colWidths[i] + 1 // +1 for space
 	}
-	
+
 	// Calculate end position of target column
 	targetColEnd := targetColStart + colWidths[colIndex]
-	
+
 	maxDisplayWidth := m.width - 2 // Use actual available width
-	
+
 	if colIndex == 0 {
 		// For first column, scroll to beginning
 		m.horizontalOffset = 0

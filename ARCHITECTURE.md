@@ -28,7 +28,7 @@ bqui/
 
 ### **1. Clean Architecture**
 - **Domain**: `internal/bigquery/` - Pure business logic
-- **UI**: `internal/tui/` - Terminal interface components  
+- **UI**: `internal/tui/` - Terminal interface components
 - **Infrastructure**: `pkg/` - External utilities
 - **App**: `cmd/` - Application bootstrap
 
@@ -74,7 +74,7 @@ User Input → App Model → Component Updates → BigQuery API → UI Refresh
 
 ### **Focus States**
 - `FocusDatasetList` - Left pane active
-- `FocusTableDetail` - Right pane active  
+- `FocusTableDetail` - Right pane active
 - `FocusProjectSelector` - Project selection modal
 - `FocusSearch` - Search input mode
 
@@ -124,7 +124,7 @@ Status: Loaded schema | Press ? for help
 ```
 App (root)
 ├── DatasetList (left pane)
-├── TableDetail (right pane)  
+├── TableDetail (right pane)
 │   ├── Schema Tab
 │   ├── Preview Tab
 │   └── Query Tab

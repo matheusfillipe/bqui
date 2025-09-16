@@ -99,7 +99,7 @@ func (m DatasetListModel) handleKeypress(msg tea.KeyMsg) (DatasetListModel, tea.
 				m.selectedDataset = m.getFilteredDatasets()[m.cursor]
 				m.showingTables = true
 				m.cursor = 0
-				m.selectedTable = nil // Reset table selection
+				m.selectedTable = nil                 // Reset table selection
 				m.tables = make([]*bigquery.Table, 0) // Clear old table list immediately
 				return m, nil
 			}
@@ -196,12 +196,12 @@ func (m *DatasetListModel) getMaxVisible() int {
 	if m.filter != "" {
 		filterHeight = 2 // Filter display + blank line
 	}
-	infoHeight := 1 // Info line at bottom
+	infoHeight := 1    // Info line at bottom
 	paddingHeight := 1 // Some breathing room
-	
+
 	// Available space for list items
 	available := m.height - titleHeight - filterHeight - infoHeight - paddingHeight
-	
+
 	if available < 1 {
 		available = 1 // Show at least one item
 	}
@@ -273,12 +273,12 @@ func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bo
 	}
 
 	maxVisible := m.getMaxVisible()
-	
+
 	// Debug: Let's add some bounds checking
 	if maxVisible <= 0 {
 		maxVisible = 10 // Fallback
 	}
-	
+
 	visibleStart := m.viewOffset
 	visibleEnd := visibleStart + maxVisible
 

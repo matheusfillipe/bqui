@@ -14,19 +14,19 @@ type DatasetsLoadedMsg struct {
 
 type TablesLoadedMsg struct {
 	DatasetID string
-	Tables []*bigquery.Table
+	Tables    []*bigquery.Table
 }
 
 type TableSchemaLoadedMsg struct {
 	DatasetID string
-	TableID string
-	Schema  *bigquery.TableSchema
+	TableID   string
+	Schema    *bigquery.TableSchema
 }
 
 type TablePreviewLoadedMsg struct {
 	DatasetID string
-	TableID string
-	Preview *bigquery.TablePreview
+	TableID   string
+	Preview   *bigquery.TablePreview
 }
 
 type QueryResultMsg struct {
@@ -91,8 +91,8 @@ func (m Model) loadTableSchema() tea.Cmd {
 		}
 		return TableSchemaLoadedMsg{
 			DatasetID: table.DatasetID,
-			TableID: table.ID,
-			Schema:  schema,
+			TableID:   table.ID,
+			Schema:    schema,
 		}
 	}
 }
@@ -110,8 +110,8 @@ func (m Model) loadTablePreview() tea.Cmd {
 		}
 		return TablePreviewLoadedMsg{
 			DatasetID: table.DatasetID,
-			TableID: table.ID,
-			Preview: preview,
+			TableID:   table.ID,
+			Preview:   preview,
 		}
 	}
 }
