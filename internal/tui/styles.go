@@ -87,4 +87,13 @@ var (
 	TableCellStyle = lipgloss.NewStyle().
 			Padding(0, 1).
 			MaxWidth(20)
+
+	SelectedHeaderStyle = lipgloss.NewStyle().
+				Background(AccentColor).
+				Foreground(lipgloss.Color("#000000")).
+				Bold(true)
+
+	SelectedRowStyle = lipgloss.NewStyle().
+				Background(BorderColor).
+				Foreground(TextColor)
 )

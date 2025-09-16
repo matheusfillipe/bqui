@@ -211,6 +211,17 @@ func (m *DatasetListModel) getMaxVisible() int {
 func (m *DatasetListModel) ensureCursorVisible(totalItems int) {
 	maxVisible := m.getMaxVisible()
 
+	// Apply same bounds checking as in View
+	if maxVisible <= 0 {
+		maxVisible = 5
+	}
+	if maxVisible > m.height-4 {
+		maxVisible = m.height - 4
+		if maxVisible < 1 {
+			maxVisible = 1
+		}
+	}
+
 	// If cursor is above the visible area, scroll up
 	if m.cursor < m.viewOffset {
 		m.viewOffset = m.cursor
@@ -276,7 +287,15 @@ func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bo
 
 	// Debug: Let's add some bounds checking
 	if maxVisible <= 0 {
-		maxVisible = 10 // Fallback
+		maxVisible = 5 // Conservative fallback
+	}
+
+	// Ensure we don't try to render more items than can fit
+	if maxVisible > m.height-4 { // Conservative height check
+		maxVisible = m.height - 4
+		if maxVisible < 1 {
+			maxVisible = 1
+		}
 	}
 
 	visibleStart := m.viewOffset
@@ -286,7 +305,8 @@ func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bo
 		visibleEnd = len(filteredItems)
 	}
 
-	for i := visibleStart; i < visibleEnd; i++ {
+	itemsRendered := 0
+	for i := visibleStart; i < visibleEnd && itemsRendered < maxVisible; i++ {
 		item := filteredItems[i]
 		style := ItemStyle
 
@@ -302,6 +322,7 @@ func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bo
 		}
 
 		content.WriteString(style.Render(prefix+item) + "\n")
+		itemsRendered++
 	}
 
 	if len(filteredItems) > visibleEnd {
@@ -317,5 +338,14 @@ func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bo
 
 	content.WriteString("\n" + SubtleItemStyle.Render(info))
 
-	return content.String()
+	result := content.String()
+
+	// Final safeguard: ensure we don't exceed expected height
+	lines := strings.Split(result, "\n")
+	if len(lines) > m.height {
+		lines = lines[:m.height]
+		result = strings.Join(lines, "\n")
+	}
+
+	return result
 }

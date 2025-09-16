@@ -18,6 +18,7 @@ const (
 	SchemaTab TabType = iota
 	PreviewTab
 	QueryTab
+	ResultsTab
 )
 
 type TableDetailModel struct {
@@ -29,6 +30,8 @@ type TableDetailModel struct {
 	scrollOffset     int
 	horizontalOffset int
 	currentTableName string
+	currentProjectID string
+	currentDatasetID string
 	schemaFilter     string
 	showSchemaFilter bool
 	previewRowCursor int
@@ -43,6 +46,14 @@ type TableDetailModel struct {
 	// Preview filtering
 	previewFilter     string
 	showPreviewFilter bool
+	// Dialog and Results
+	showColumnDialog bool
+	selectedColumn   *bigquery.Column
+	dialogCursor     int
+	queryResults     *bigquery.QueryResult
+	executedQuery    string
+	resultsRowCursor int
+	resultsColCursor int
 }
 
 func NewTableDetailModel() TableDetailModel {
@@ -58,6 +69,9 @@ func NewTableDetailModel() TableDetailModel {
 		queryInput:        queryInput,
 		scrollOffset:      0,
 		horizontalOffset:  0,
+		currentTableName:  "",
+		currentProjectID:  "",
+		currentDatasetID:  "",
 		schemaFilter:      "",
 		showSchemaFilter:  false,
 		previewRowCursor:  0,
@@ -69,6 +83,13 @@ func NewTableDetailModel() TableDetailModel {
 		visualEndRow:      0,
 		previewFilter:     "",
 		showPreviewFilter: false,
+		showColumnDialog:  false,
+		selectedColumn:    nil,
+		dialogCursor:      0,
+		queryResults:      nil,
+		executedQuery:     "",
+		resultsRowCursor:  0,
+		resultsColCursor:  0,
 	}
 }
 
@@ -228,7 +249,7 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 
 	switch {
 	case key.Matches(msg, DefaultKeyMap().Tab):
-		m.activeTab = TabType((int(m.activeTab) + 1) % 3)
+		m.activeTab = TabType((int(m.activeTab) + 1) % 4)
 		m.scrollOffset = 0
 		m.previewRowCursor = 0
 		m.previewColCursor = 0
@@ -236,7 +257,7 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		m.visualMode = false // Exit visual mode when changing tabs
 
 	case key.Matches(msg, DefaultKeyMap().ShiftTab):
-		m.activeTab = TabType((int(m.activeTab) + 2) % 3) // +2 is same as -1 in mod 3
+		m.activeTab = TabType((int(m.activeTab) + 3) % 4) // +3 is same as -1 in mod 4
 		m.scrollOffset = 0
 		m.previewRowCursor = 0
 		m.previewColCursor = 0
@@ -244,7 +265,11 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		m.visualMode = false // Exit visual mode when changing tabs
 
 	case key.Matches(msg, DefaultKeyMap().Up):
-		if m.activeTab == PreviewTab && m.preview != nil {
+		if m.showColumnDialog {
+			if m.dialogCursor > 0 {
+				m.dialogCursor--
+			}
+		} else if m.activeTab == PreviewTab && m.preview != nil {
 			if m.previewRowCursor > 0 {
 				m.previewRowCursor--
 				// Update visual selection end if in visual mode
@@ -256,6 +281,10 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 			if m.schemaRowCursor > 0 {
 				m.schemaRowCursor--
 			}
+		} else if m.activeTab == ResultsTab && m.queryResults != nil {
+			if m.resultsRowCursor > 0 {
+				m.resultsRowCursor--
+			}
 		} else {
 			if m.scrollOffset > 0 {
 				m.scrollOffset--
@@ -263,7 +292,12 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		}
 
 	case key.Matches(msg, DefaultKeyMap().Down):
-		if m.activeTab == PreviewTab && m.preview != nil {
+		if m.showColumnDialog {
+			maxOptions := m.getDialogOptionCount()
+			if m.dialogCursor < maxOptions-1 {
+				m.dialogCursor++
+			}
+		} else if m.activeTab == PreviewTab && m.preview != nil {
 			filteredRows := m.getFilteredPreviewRows()
 			if m.previewRowCursor < len(filteredRows)-1 {
 				m.previewRowCursor++
@@ -276,6 +310,10 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 			filteredFields := m.getFilteredSchemaFields()
 			if m.schemaRowCursor < len(filteredFields)-1 {
 				m.schemaRowCursor++
+			}
+		} else if m.activeTab == ResultsTab && m.queryResults != nil {
+			if m.resultsRowCursor < len(m.queryResults.Rows)-1 {
+				m.resultsRowCursor++
 			}
 		} else {
 			m.scrollOffset++
@@ -368,6 +406,10 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 				m.previewColCursor--
 				// The horizontal offset will be automatically adjusted in the view rendering
 			}
+		} else if m.activeTab == ResultsTab && m.queryResults != nil {
+			if m.resultsColCursor > 0 {
+				m.resultsColCursor--
+			}
 		} else {
 			if m.horizontalOffset > 0 {
 				m.horizontalOffset--
@@ -379,6 +421,10 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 			if m.previewColCursor < len(m.preview.Headers)-1 {
 				m.previewColCursor++
 				// The horizontal offset will be automatically adjusted in the view rendering
+			}
+		} else if m.activeTab == ResultsTab && m.queryResults != nil {
+			if m.resultsColCursor < len(m.queryResults.Columns)-1 {
+				m.resultsColCursor++
 			}
 		} else {
 			m.horizontalOffset++
@@ -398,7 +444,19 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		}
 
 	case key.Matches(msg, DefaultKeyMap().Enter):
-		if m.activeTab == QueryTab && !m.queryInput.Focused() {
+		if m.showColumnDialog {
+			// Execute the selected query option
+			return m.executeDialogOption()
+		} else if m.activeTab == SchemaTab && m.schema != nil && !m.showSchemaFilter {
+			// Show column query dialog for the selected schema column
+			filteredFields := m.getFilteredSchemaFields()
+			if m.schemaRowCursor < len(filteredFields) {
+				m.selectedColumn = filteredFields[m.schemaRowCursor]
+				m.showColumnDialog = true
+				m.dialogCursor = 0
+				return m, nil
+			}
+		} else if m.activeTab == QueryTab && !m.queryInput.Focused() {
 			m.queryInput.Focus()
 			return m, nil
 		}
@@ -565,6 +623,8 @@ func (m TableDetailModel) viewWithLoadingState(loadingSchema, loadingPreview boo
 		content.WriteString(m.renderPreviewTab())
 	case QueryTab:
 		content.WriteString(m.renderQueryTab())
+	case ResultsTab:
+		content.WriteString(m.renderResultsTab())
 	}
 
 	return content.String()
@@ -584,6 +644,7 @@ func (m TableDetailModel) renderTabsWithState(loadingSchema, loadingPreview bool
 	schemaStyle := TabInactiveStyle
 	previewStyle := TabInactiveStyle
 	queryStyle := TabInactiveStyle
+	resultsStyle := TabInactiveStyle
 
 	switch m.activeTab {
 	case SchemaTab:
@@ -592,6 +653,8 @@ func (m TableDetailModel) renderTabsWithState(loadingSchema, loadingPreview bool
 		previewStyle = TabActiveStyle
 	case QueryTab:
 		queryStyle = TabActiveStyle
+	case ResultsTab:
+		resultsStyle = TabActiveStyle
 	}
 
 	schemaText := "Schema"
@@ -606,6 +669,7 @@ func (m TableDetailModel) renderTabsWithState(loadingSchema, loadingPreview bool
 	tabs = append(tabs, schemaStyle.Render(schemaText))
 	tabs = append(tabs, previewStyle.Render(previewText))
 	tabs = append(tabs, queryStyle.Render("Query"))
+	tabs = append(tabs, resultsStyle.Render("Results"))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 }
@@ -670,7 +734,12 @@ func (m TableDetailModel) renderSchemaTab() string {
 
 	// Add help text
 	if !m.showSchemaFilter {
-		content.WriteString("\n" + HelpStyle.Render("Press / to search columns, ←→ or h/l to scroll horizontally"))
+		content.WriteString("\n" + HelpStyle.Render("Press / to search columns, ←→ or h/l to scroll horizontally, Enter to query column"))
+	}
+
+	// Render dialog if visible
+	if m.showColumnDialog {
+		content.WriteString("\n\n" + m.renderColumnDialog())
 	}
 
 	return content.String()
@@ -877,7 +946,7 @@ func (m TableDetailModel) renderQueryTab() string {
 	content.WriteString(m.queryInput.View() + "\n")
 
 	if !m.queryInput.Focused() {
-		content.WriteString(HelpStyle.Render("Press Enter to edit query, Esc to exit edit mode") + "\n")
+		content.WriteString(HelpStyle.Render("Press Enter to edit query, Esc to exit edit mode, Ctrl+Y to copy query") + "\n")
 	}
 
 	if m.queryResult != nil {
@@ -942,8 +1011,32 @@ func (m TableDetailModel) getMaxVisibleSchema() int {
 		filterHeight = 2 // Filter display + blank
 	}
 
+	dialogHeight := 0
+	if m.showColumnDialog {
+		// Dialog takes: title + column details + options + help + spacing
+		dialogHeight = 6 + m.getDialogOptionCount() // Estimated height for dialog
+	}
+
 	// Available space for schema rows
-	available := m.height - tabHeight - titleHeight - tableNameHeight - headerHeight - helpHeight - filterHeight - paddingHeight
+	available := m.height - tabHeight - titleHeight - tableNameHeight - headerHeight - helpHeight - filterHeight - dialogHeight - paddingHeight
+
+	if available < 1 {
+		available = 1 // Show at least one row
+	}
+	return available
+}
+
+func (m TableDetailModel) getMaxVisibleResults() int {
+	// Calculate actual space used by our UI elements within the content area
+	tabHeight := 2       // Tab bar + blank line
+	titleHeight := 1     // "📊 Query Results" header
+	queryInfoHeight := 2 // Query + Rows info lines
+	headerHeight := 1    // Column headers
+	helpHeight := 2      // Help text at bottom
+	paddingHeight := 1   // Some breathing room
+
+	// Available space for result rows
+	available := m.height - tabHeight - titleHeight - queryInfoHeight - headerHeight - helpHeight - paddingHeight
 
 	if available < 1 {
 		available = 1 // Show at least one row
@@ -1055,7 +1148,15 @@ func (m TableDetailModel) renderSchemaFieldTabular(field *bigquery.Column, inden
 
 // handleEscapeKey handles ESC key with proper hierarchy
 func (m TableDetailModel) handleEscapeKey() (TableDetailModel, tea.Cmd) {
-	// Priority 1: Exit visual mode if active
+	// Priority 1: Close column dialog if open
+	if m.showColumnDialog {
+		m.showColumnDialog = false
+		m.selectedColumn = nil
+		m.dialogCursor = 0
+		return m, nil
+	}
+
+	// Priority 2: Exit visual mode if active
 	if m.visualMode {
 		m.visualMode = false
 		m.visualStartRow = 0
@@ -1063,7 +1164,7 @@ func (m TableDetailModel) handleEscapeKey() (TableDetailModel, tea.Cmd) {
 		return m, nil
 	}
 
-	// Priority 2: Clear active search filters
+	// Priority 3: Clear active search filters
 	if m.activeTab == SchemaTab && m.schemaFilter != "" {
 		m.schemaFilter = ""
 		m.schemaRowCursor = 0
@@ -1167,4 +1268,413 @@ func (m *TableDetailModel) forceScrollToColumn(colIndex int) {
 			}
 		}
 	}
+}
+
+// getDialogOptionCount returns the number of options available for the selected column
+func (m TableDetailModel) getDialogOptionCount() int {
+	if m.selectedColumn == nil {
+		return 0
+	}
+
+	options := 3 // select, select non null, select distinct
+
+	// Add count nulls option only for non-required fields
+	if !m.selectedColumn.Required {
+		options++
+	}
+
+	// Add count empty option only for repeated arrays
+	if m.selectedColumn.Repeated {
+		options++
+	}
+
+	return options
+}
+
+// executeDialogOption generates and executes the SQL query for the selected dialog option
+func (m TableDetailModel) executeDialogOption() (TableDetailModel, tea.Cmd) {
+	if m.selectedColumn == nil {
+		return m, nil
+	}
+
+	query := m.generateQueryForOption(m.dialogCursor)
+	if query == "" {
+		return m, nil
+	}
+
+	// Store the query for the Query tab and populate the query input
+	m.executedQuery = query
+	m.queryInput.SetValue(query)
+
+	// Close the dialog
+	m.showColumnDialog = false
+
+	// Switch to Results tab
+	m.activeTab = ResultsTab
+
+	// Return command to execute the query
+	return m, func() tea.Msg {
+		return ExecuteQueryMsg{Query: query}
+	}
+}
+
+// generateQueryForOption generates the SQL query based on the selected option
+func (m TableDetailModel) generateQueryForOption(optionIndex int) string {
+	if m.selectedColumn == nil {
+		return ""
+	}
+
+	// Construct fully qualified table name
+	var fullTableName string
+	if m.currentProjectID != "" && m.currentDatasetID != "" && m.currentTableName != "" {
+		if m.isDatePartitionedTable() {
+			// For partitioned tables, extract the base table name and use wildcard syntax
+			baseTableName := m.getBaseTableName()
+			fullTableName = fmt.Sprintf("`%s.%s.%s*`", m.currentProjectID, m.currentDatasetID, baseTableName)
+		} else {
+			fullTableName = fmt.Sprintf("`%s.%s.%s`", m.currentProjectID, m.currentDatasetID, m.currentTableName)
+		}
+	} else {
+		// Fallback to just table name if we don't have full info
+		fullTableName = fmt.Sprintf("`%s`", m.currentTableName)
+	}
+
+	columnName := m.selectedColumn.Name
+	options := []string{}
+
+	// Handle partitioned tables - add _TABLE_SUFFIX constraint for date-partitioned tables
+	tableConstraint := ""
+	if m.isDatePartitionedTable() {
+		// For date-partitioned tables, add a recent date constraint to avoid scanning all partitions
+		tableConstraint = " WHERE _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)) AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())"
+	}
+
+	// Basic select
+	if tableConstraint != "" {
+		options = append(options, fmt.Sprintf("SELECT %s FROM %s%s LIMIT 100", columnName, fullTableName, tableConstraint))
+	} else {
+		options = append(options, fmt.Sprintf("SELECT %s FROM %s LIMIT 100", columnName, fullTableName))
+	}
+
+	// Select non null
+	if tableConstraint != "" {
+		options = append(options, fmt.Sprintf("SELECT %s FROM %s%s AND %s IS NOT NULL LIMIT 100", columnName, fullTableName, tableConstraint, columnName))
+	} else {
+		options = append(options, fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT 100", columnName, fullTableName, columnName))
+	}
+
+	// Select distinct
+	if tableConstraint != "" {
+		options = append(options, fmt.Sprintf("SELECT DISTINCT %s FROM %s%s LIMIT 100", columnName, fullTableName, tableConstraint))
+	} else {
+		options = append(options, fmt.Sprintf("SELECT DISTINCT %s FROM %s LIMIT 100", columnName, fullTableName))
+	}
+
+	// Count nulls (only for non-required fields)
+	if !m.selectedColumn.Required {
+		if tableConstraint != "" {
+			options = append(options, fmt.Sprintf("SELECT COUNT(*) as null_count FROM %s%s AND %s IS NULL", fullTableName, tableConstraint, columnName))
+		} else {
+			options = append(options, fmt.Sprintf("SELECT COUNT(*) as null_count FROM %s WHERE %s IS NULL", fullTableName, columnName))
+		}
+	}
+
+	// Count empty (only for repeated arrays)
+	if m.selectedColumn.Repeated {
+		if tableConstraint != "" {
+			options = append(options, fmt.Sprintf("SELECT COUNT(*) as empty_count FROM %s%s AND ARRAY_LENGTH(%s) = 0", fullTableName, tableConstraint, columnName))
+		} else {
+			options = append(options, fmt.Sprintf("SELECT COUNT(*) as empty_count FROM %s WHERE ARRAY_LENGTH(%s) = 0", fullTableName, columnName))
+		}
+	}
+
+	if optionIndex >= 0 && optionIndex < len(options) {
+		return options[optionIndex]
+	}
+
+	return ""
+}
+
+// isDatePartitionedTable checks if the current table appears to be date-partitioned
+func (m TableDetailModel) isDatePartitionedTable() bool {
+	// Check if table name ends with a date pattern (common for partitioned tables)
+	// Examples: table_name_20250101, events__2025_03_30, logs_2025_01_15
+	tableName := m.currentTableName
+	if len(tableName) < 8 {
+		return false
+	}
+
+	// Check for common date partition patterns
+	// Pattern 1: ends with _YYYYMMDD
+	if len(tableName) >= 9 && tableName[len(tableName)-9] == '_' {
+		suffix := tableName[len(tableName)-8:]
+		if isDateString(suffix, "20060102") {
+			return true
+		}
+	}
+
+	// Pattern 2: ends with __YYYY_MM_DD
+	if len(tableName) >= 12 && tableName[len(tableName)-12:len(tableName)-10] == "__" {
+		suffix := tableName[len(tableName)-10:]
+		if isDateString(suffix, "2006_01_02") {
+			return true
+		}
+	}
+
+	// Pattern 3: ends with _YYYY_MM_DD
+	if len(tableName) >= 11 && tableName[len(tableName)-11] == '_' {
+		suffix := tableName[len(tableName)-10:]
+		if isDateString(suffix, "2006_01_02") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getBaseTableName extracts the base table name from a partitioned table
+func (m TableDetailModel) getBaseTableName() string {
+	tableName := m.currentTableName
+
+	// Pattern 1: table_name_YYYYMMDD -> table_name_
+	if len(tableName) >= 9 && tableName[len(tableName)-9] == '_' {
+		suffix := tableName[len(tableName)-8:]
+		if isDateString(suffix, "20060102") {
+			return tableName[:len(tableName)-8]
+		}
+	}
+
+	// Pattern 2: table_name__YYYY_MM_DD -> table_name__
+	if len(tableName) >= 12 && tableName[len(tableName)-12:len(tableName)-10] == "__" {
+		suffix := tableName[len(tableName)-10:]
+		if isDateString(suffix, "2006_01_02") {
+			return tableName[:len(tableName)-10]
+		}
+	}
+
+	// Pattern 3: table_name_YYYY_MM_DD -> table_name_
+	if len(tableName) >= 11 && tableName[len(tableName)-11] == '_' {
+		suffix := tableName[len(tableName)-10:]
+		if isDateString(suffix, "2006_01_02") {
+			return tableName[:len(tableName)-10]
+		}
+	}
+
+	// If no pattern matches, return the original table name
+	return tableName
+}
+
+// isDateString checks if a string matches a date format
+func isDateString(s, layout string) bool {
+	// Simple validation - check if string has right length and format
+	if len(s) != len(layout) {
+		return false
+	}
+
+	// Check basic pattern - all digits in the right places
+	for i, char := range layout {
+		if char >= '0' && char <= '9' {
+			if s[i] < '0' || s[i] > '9' {
+				return false
+			}
+		} else if s[i] != byte(char) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// renderResultsTab renders the results of the executed query with preview-like functionality
+func (m TableDetailModel) renderResultsTab() string {
+	if m.queryResults == nil {
+		return SubtleItemStyle.Render("No query results available. Execute a query from the schema column dialog.")
+	}
+
+	var content strings.Builder
+	content.WriteString(HeaderStyle.Render("📊 Query Results") + "\n")
+
+	if m.executedQuery != "" {
+		content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("Query: %s", m.executedQuery)) + "\n")
+	}
+
+	content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("Rows: %d", len(m.queryResults.Rows))) + "\n\n")
+
+	if len(m.queryResults.Rows) == 0 {
+		content.WriteString(SubtleItemStyle.Render("No data returned from query."))
+		return content.String()
+	}
+
+	// Render table similar to preview tab
+	return content.String() + m.renderQueryResultsTable()
+}
+
+// renderQueryResultsTable renders the results table with navigation
+func (m TableDetailModel) renderQueryResultsTable() string {
+	if m.queryResults == nil || len(m.queryResults.Rows) == 0 {
+		return ""
+	}
+
+	var content strings.Builder
+
+	// Calculate column widths
+	colWidths := make([]int, len(m.queryResults.Columns))
+	for i, header := range m.queryResults.Columns {
+		colWidths[i] = len(header)
+		for _, row := range m.queryResults.Rows {
+			if i < len(row) {
+				cellValue := fmt.Sprintf("%v", row[i])
+				if len(cellValue) > colWidths[i] {
+					colWidths[i] = len(cellValue)
+				}
+			}
+		}
+		// Cap column width at 30 characters
+		if colWidths[i] > 30 {
+			colWidths[i] = 30
+		}
+		// Minimum width of 8
+		if colWidths[i] < 8 {
+			colWidths[i] = 8
+		}
+	}
+
+	// Render headers
+	var headers []string
+	for i, header := range m.queryResults.Columns {
+		style := HeaderStyle
+		if i == m.resultsColCursor {
+			style = SelectedHeaderStyle
+		}
+		// Pad or truncate header to fit column width
+		displayHeader := header
+		if len(displayHeader) > colWidths[i] {
+			displayHeader = displayHeader[:colWidths[i]-3] + "..."
+		}
+		headers = append(headers, style.Render(fmt.Sprintf("%-*s", colWidths[i], displayHeader)))
+	}
+	content.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, headers...) + "\n")
+
+	// Calculate visible rows based on cursor and height
+	maxRows := m.getMaxVisibleResults()
+	if maxRows < 1 {
+		maxRows = 1
+	}
+
+	startRow := m.resultsRowCursor - maxRows/2
+	if startRow < 0 {
+		startRow = 0
+	}
+	endRow := startRow + maxRows
+	if endRow > len(m.queryResults.Rows) {
+		endRow = len(m.queryResults.Rows)
+		startRow = endRow - maxRows
+		if startRow < 0 {
+			startRow = 0
+		}
+	}
+
+	// Render visible rows
+	for rowIdx := startRow; rowIdx < endRow; rowIdx++ {
+		row := m.queryResults.Rows[rowIdx]
+		var cells []string
+
+		for colIdx, colWidth := range colWidths {
+			var cellValue string
+			if colIdx < len(row) {
+				cellValue = fmt.Sprintf("%v", row[colIdx])
+			}
+
+			// Truncate if too long
+			if len(cellValue) > colWidth {
+				cellValue = cellValue[:colWidth-3] + "..."
+			}
+
+			style := ItemStyle
+			if rowIdx == m.resultsRowCursor && colIdx == m.resultsColCursor {
+				style = SelectedItemStyle
+			} else if rowIdx == m.resultsRowCursor {
+				style = SelectedRowStyle
+			}
+
+			cells = append(cells, style.Render(fmt.Sprintf("%-*s", colWidth, cellValue)))
+		}
+		content.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cells...) + "\n")
+	}
+
+	// Show navigation info
+	content.WriteString("\n" + SubtleItemStyle.Render(
+		fmt.Sprintf("Row %d/%d, Column %d/%d • Use arrow keys to navigate",
+			m.resultsRowCursor+1, len(m.queryResults.Rows),
+			m.resultsColCursor+1, len(m.queryResults.Columns))))
+
+	return content.String()
+}
+
+// getDialogOptionName returns the display name for a dialog option
+func (m TableDetailModel) getDialogOptionName(optionIndex int) string {
+	if m.selectedColumn == nil {
+		return ""
+	}
+
+	options := []string{"Select", "Select Non Null", "Select Distinct"}
+
+	// Add count nulls option only for non-required fields
+	if !m.selectedColumn.Required {
+		options = append(options, "Count Nulls")
+	}
+
+	// Add count empty option only for repeated arrays
+	if m.selectedColumn.Repeated {
+		options = append(options, "Count Empty")
+	}
+
+	if optionIndex >= 0 && optionIndex < len(options) {
+		return options[optionIndex]
+	}
+
+	return ""
+}
+
+// renderColumnDialog renders the dialog box for column query options
+func (m TableDetailModel) renderColumnDialog() string {
+	if m.selectedColumn == nil {
+		return ""
+	}
+
+	var content strings.Builder
+
+	dialogTitle := fmt.Sprintf("Query options for column: %s", m.selectedColumn.Name)
+	content.WriteString(HeaderStyle.Render(dialogTitle) + "\n")
+
+	// Show column details
+	content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("Type: %s | Mode: %s",
+		m.selectedColumn.Type,
+		m.getColumnMode(m.selectedColumn))) + "\n\n")
+
+	// Render options
+	optionCount := m.getDialogOptionCount()
+	for i := 0; i < optionCount; i++ {
+		optionName := m.getDialogOptionName(i)
+		if i == m.dialogCursor {
+			content.WriteString(SelectedItemStyle.Render(fmt.Sprintf("► %s", optionName)) + "\n")
+		} else {
+			content.WriteString(ItemStyle.Render(fmt.Sprintf("  %s", optionName)) + "\n")
+		}
+	}
+
+	content.WriteString("\n" + HelpStyle.Render("↑↓ to navigate • Enter to execute • Esc to cancel"))
+
+	return content.String()
+}
+
+// getColumnMode returns a human-readable mode string for a column
+func (m TableDetailModel) getColumnMode(col *bigquery.Column) string {
+	if col.Repeated {
+		return "REPEATED"
+	}
+	if col.Required {
+		return "REQUIRED"
+	}
+	return "NULLABLE"
 }

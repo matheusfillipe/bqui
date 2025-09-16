@@ -332,6 +332,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.datasetList.selectedTable.ID == msg.TableID {
 			m.tableDetail.schema = msg.Schema
 			m.tableDetail.currentTableName = msg.TableID
+			m.tableDetail.currentProjectID = m.bqClient.GetProjectID()
+			m.tableDetail.currentDatasetID = msg.DatasetID
 			m.tableDetail.schemaRowCursor = 0 // Reset schema row cursor for new data
 			m.loadingSchema = false
 			m.statusMessage = fmt.Sprintf("Loaded schema for %s.%s", msg.DatasetID, msg.TableID)
@@ -349,6 +351,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tableDetail.preview = msg.Preview
 			if m.tableDetail.currentTableName == "" {
 				m.tableDetail.currentTableName = msg.TableID
+				m.tableDetail.currentProjectID = m.bqClient.GetProjectID()
+				m.tableDetail.currentDatasetID = msg.DatasetID
 			}
 			m.tableDetail.previewRowCursor = 0 // Reset row cursor for new data
 			m.tableDetail.previewColCursor = 0 // Reset column cursor for new data
@@ -387,6 +391,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastSelectedDatasetID = ""
 		m.lastSelectedTableID = ""
 		return m, m.loadDatasets()
+
+	case ExecuteQueryMsg:
+		m.statusMessage = "Executing query..."
+		return m, m.executeQuery(msg.Query)
+
+	case QueryResultMsg:
+		m.tableDetail.queryResults = msg.Result
+		m.statusMessage = fmt.Sprintf("Query executed successfully - %d rows returned", len(msg.Result.Rows))
+		return m, nil
 	}
 
 	return m, cmd
@@ -531,6 +544,18 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.focus == FocusTableDetail && m.tableDetail.activeTab == QueryTab {
+		queryText := m.tableDetail.queryInput.Value()
+		if queryText != "" {
+			return m, func() tea.Msg {
+				if err := clipboard.Copy(queryText); err != nil {
+					return ErrorMsg{Error: err}
+				}
+				return CopySuccessMsg{Text: "Copied query"}
+			}
+		}
+	}
+
 	return m, nil
 }
 
@@ -549,20 +574,8 @@ func (m Model) View() string {
 
 	leftPaneWidth := m.width / 3
 	rightPaneWidth := m.width - leftPaneWidth - 4
-	leftPaneHeight := m.height - 6
-	rightPaneHeight := m.height - 6
 
-	leftPaneStyle := PaneStyle.Width(leftPaneWidth).Height(leftPaneHeight)
-	rightPaneStyle := PaneStyle.Width(rightPaneWidth).Height(rightPaneHeight)
-
-	switch m.focus {
-	case FocusDatasetList:
-		leftPaneStyle = ActivePaneStyle.Width(leftPaneWidth).Height(leftPaneHeight)
-	case FocusTableDetail:
-		rightPaneStyle = ActivePaneStyle.Width(rightPaneWidth).Height(rightPaneHeight)
-	}
-
-	// Calculate actual content height based on rendered status and search bars
+	// Calculate actual content height first, then derive pane heights
 	statusBar := m.renderStatusBar()
 	searchBar := ""
 	if m.focus == FocusSearch {
@@ -576,11 +589,24 @@ func (m Model) View() string {
 	searchHeight := lipgloss.Height(searchBar)
 
 	// Available height for content panes (account for pane borders + padding)
-	// PaneStyle has rounded border (2 lines) + padding, so subtract 4 lines total
 	paneHeight := m.height - projectHeaderHeight - statusHeight - searchHeight
 	contentHeight := paneHeight - 4 // Account for pane border and padding
 	if contentHeight < 5 {
 		contentHeight = 5 // Minimum height
+	}
+
+	// Pane heights should match the actual available space
+	leftPaneHeight := paneHeight
+	rightPaneHeight := paneHeight
+
+	leftPaneStyle := PaneStyle.Width(leftPaneWidth).MaxHeight(leftPaneHeight)
+	rightPaneStyle := PaneStyle.Width(rightPaneWidth).MaxHeight(rightPaneHeight)
+
+	switch m.focus {
+	case FocusDatasetList:
+		leftPaneStyle = ActivePaneStyle.Width(leftPaneWidth).MaxHeight(leftPaneHeight)
+	case FocusTableDetail:
+		rightPaneStyle = ActivePaneStyle.Width(rightPaneWidth).MaxHeight(rightPaneHeight)
 	}
 
 	// Update component heights with actual available space inside the panes

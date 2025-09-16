@@ -33,6 +33,10 @@ type QueryResultMsg struct {
 	Result *bigquery.QueryResult
 }
 
+type ExecuteQueryMsg struct {
+	Query string
+}
+
 type ProjectsLoadedMsg struct {
 	Projects []*bigquery.Project
 }
@@ -133,5 +137,15 @@ func (m Model) switchProject(projectID string) tea.Cmd {
 			return ErrorMsg{Error: fmt.Errorf("failed to switch to project %s: %w", projectID, err)}
 		}
 		return ProjectSwitchedMsg{ProjectID: projectID}
+	}
+}
+
+func (m Model) executeQuery(query string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.bqClient.ExecuteQuery(query)
+		if err != nil {
+			return ErrorMsg{Error: fmt.Errorf("failed to execute query: %w", err)}
+		}
+		return QueryResultMsg{Result: result}
 	}
 }
