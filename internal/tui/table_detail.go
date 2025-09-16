@@ -197,11 +197,16 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 
 	// Handle visual mode keys
 	if msg.String() == "V" || msg.String() == "shift+v" {
-		if m.activeTab == PreviewTab && m.preview != nil {
+		if (m.activeTab == PreviewTab && m.preview != nil) || (m.activeTab == ResultsTab && m.queryResults != nil) {
 			m.visualMode = !m.visualMode
 			if m.visualMode {
-				m.visualStartRow = m.previewRowCursor
-				m.visualEndRow = m.previewRowCursor
+				if m.activeTab == PreviewTab {
+					m.visualStartRow = m.previewRowCursor
+					m.visualEndRow = m.previewRowCursor
+				} else if m.activeTab == ResultsTab {
+					m.visualStartRow = m.resultsRowCursor
+					m.visualEndRow = m.resultsRowCursor
+				}
 			} else {
 				m.visualStartRow = 0
 				m.visualEndRow = 0
@@ -284,6 +289,10 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		} else if m.activeTab == ResultsTab && m.queryResults != nil {
 			if m.resultsRowCursor > 0 {
 				m.resultsRowCursor--
+				// Update visual selection end if in visual mode
+				if m.visualMode {
+					m.visualEndRow = m.resultsRowCursor
+				}
 			}
 		} else {
 			if m.scrollOffset > 0 {
@@ -314,6 +323,10 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		} else if m.activeTab == ResultsTab && m.queryResults != nil {
 			if m.resultsRowCursor < len(m.queryResults.Rows)-1 {
 				m.resultsRowCursor++
+				// Update visual selection end if in visual mode
+				if m.visualMode {
+					m.visualEndRow = m.resultsRowCursor
+				}
 			}
 		} else {
 			m.scrollOffset++
@@ -327,6 +340,14 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 				m.visualEndRow = 0
 			} else {
 				m.previewColCursor = 0
+			}
+		} else if m.activeTab == ResultsTab && m.queryResults != nil {
+			m.resultsRowCursor = 0
+			// In visual mode, extend selection to top; otherwise reset column cursor
+			if m.visualMode {
+				m.visualEndRow = 0
+			} else {
+				m.resultsColCursor = 0
 			}
 		} else if m.activeTab == SchemaTab && m.schema != nil {
 			m.schemaRowCursor = 0
@@ -363,6 +384,22 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 				m.scrollOffset = len(m.queryResult.Rows) - maxVisible
 			} else {
 				m.scrollOffset = 0
+			}
+		} else if m.activeTab == ResultsTab && m.queryResults != nil {
+			if len(m.queryResults.Rows) > 0 {
+				m.resultsRowCursor = len(m.queryResults.Rows) - 1
+				// In visual mode, extend selection to bottom; otherwise move column cursor too
+				if m.visualMode {
+					m.visualEndRow = len(m.queryResults.Rows) - 1
+				} else {
+					if len(m.queryResults.Columns) > 0 {
+						m.resultsColCursor = len(m.queryResults.Columns) - 1
+					} else {
+						m.resultsColCursor = 0
+					}
+				}
+			} else {
+				m.resultsRowCursor = 0
 			}
 		}
 
@@ -1302,6 +1339,12 @@ func (m TableDetailModel) executeDialogOption() (TableDetailModel, tea.Cmd) {
 		return m, nil
 	}
 
+	// Clear previous results and reset cursors
+	m.queryResults = nil
+	m.resultsRowCursor = 0
+	m.resultsColCursor = 0
+	m.visualMode = false
+
 	// Store the query for the Query tab and populate the query input
 	m.executedQuery = query
 	m.queryInput.SetValue(query)
@@ -1498,7 +1541,16 @@ func (m TableDetailModel) renderResultsTab() string {
 		content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("Query: %s", m.executedQuery)) + "\n")
 	}
 
-	content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("Rows: %d", len(m.queryResults.Rows))) + "\n\n")
+	content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("Rows: %d", len(m.queryResults.Rows))) + "\n")
+
+	// Show visual mode indicator
+	if m.visualMode {
+		start := min(m.visualStartRow, m.visualEndRow)
+		end := max(m.visualStartRow, m.visualEndRow)
+		content.WriteString(SubtleItemStyle.Render(fmt.Sprintf("VISUAL: %d rows selected (%d-%d)", end-start+1, start+1, end+1)) + "\n")
+	}
+
+	content.WriteString("\n")
 
 	if len(m.queryResults.Rows) == 0 {
 		content.WriteString(SubtleItemStyle.Render("No data returned from query."))
@@ -1591,10 +1643,13 @@ func (m TableDetailModel) renderQueryResultsTable() string {
 			}
 
 			style := ItemStyle
+			isVisualSelected := m.visualMode && m.isRowInVisualSelection(rowIdx)
 			if rowIdx == m.resultsRowCursor && colIdx == m.resultsColCursor {
 				style = SelectedItemStyle
 			} else if rowIdx == m.resultsRowCursor {
 				style = SelectedRowStyle
+			} else if isVisualSelected {
+				style = lipgloss.NewStyle().Background(lipgloss.Color("#44475a")).Foreground(lipgloss.Color("#f8f8f2"))
 			}
 
 			cells = append(cells, style.Render(fmt.Sprintf("%-*s", colWidth, cellValue)))
@@ -1607,6 +1662,13 @@ func (m TableDetailModel) renderQueryResultsTable() string {
 		fmt.Sprintf("Row %d/%d, Column %d/%d • Use arrow keys to navigate",
 			m.resultsRowCursor+1, len(m.queryResults.Rows),
 			m.resultsColCursor+1, len(m.queryResults.Columns))))
+
+	// Show copy help text
+	if m.visualMode {
+		content.WriteString("\n" + HelpStyle.Render("Press y to copy selected rows, V to exit visual mode"))
+	} else {
+		content.WriteString("\n" + HelpStyle.Render("Press y to copy selected cell, V to enter visual mode"))
+	}
 
 	return content.String()
 }

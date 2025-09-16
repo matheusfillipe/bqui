@@ -531,6 +531,48 @@ func (m Model) handleCopy() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.focus == FocusTableDetail && m.tableDetail.activeTab == ResultsTab && m.tableDetail.queryResults != nil {
+		// Check if in visual mode - copy all selected rows
+		if m.tableDetail.visualMode {
+			start := min(m.tableDetail.visualStartRow, m.tableDetail.visualEndRow)
+			end := max(m.tableDetail.visualStartRow, m.tableDetail.visualEndRow)
+
+			var selectedData []string
+			for i := start; i <= end && i < len(m.tableDetail.queryResults.Rows); i++ {
+				row := m.tableDetail.queryResults.Rows[i]
+				var rowData []string
+				for _, cell := range row {
+					rowData = append(rowData, fmt.Sprintf("%v", cell))
+				}
+				selectedData = append(selectedData, strings.Join(rowData, "\t"))
+			}
+
+			if len(selectedData) > 0 {
+				copyText := strings.Join(selectedData, "\n")
+				return m, func() tea.Msg {
+					if err := clipboard.Copy(copyText); err != nil {
+						return ErrorMsg{Error: err}
+					}
+					return CopySuccessMsg{Text: fmt.Sprintf("Copied %d rows", len(selectedData))}
+				}
+			}
+		} else {
+			// Single cell copy mode
+			if len(m.tableDetail.queryResults.Rows) > m.tableDetail.resultsRowCursor {
+				row := m.tableDetail.queryResults.Rows[m.tableDetail.resultsRowCursor]
+				if len(row) > m.tableDetail.resultsColCursor {
+					cellValue := fmt.Sprintf("%v", row[m.tableDetail.resultsColCursor])
+					return m, func() tea.Msg {
+						if err := clipboard.Copy(cellValue); err != nil {
+							return ErrorMsg{Error: err}
+						}
+						return CopySuccessMsg{Text: fmt.Sprintf("Copied cell: %s", cellValue)}
+					}
+				}
+			}
+		}
+	}
+
 	if m.focus == FocusTableDetail && m.tableDetail.activeTab == SchemaTab && m.tableDetail.schema != nil {
 		filteredFields := m.tableDetail.getFilteredSchemaFields()
 		if len(filteredFields) > m.tableDetail.schemaRowCursor {
