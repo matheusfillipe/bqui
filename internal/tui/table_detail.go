@@ -200,10 +200,11 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 		if (m.activeTab == PreviewTab && m.preview != nil) || (m.activeTab == ResultsTab && m.queryResults != nil) {
 			m.visualMode = !m.visualMode
 			if m.visualMode {
-				if m.activeTab == PreviewTab {
+				switch m.activeTab {
+				case PreviewTab:
 					m.visualStartRow = m.previewRowCursor
 					m.visualEndRow = m.previewRowCursor
-				} else if m.activeTab == ResultsTab {
+				case ResultsTab:
 					m.visualStartRow = m.resultsRowCursor
 					m.visualEndRow = m.resultsRowCursor
 				}
@@ -217,10 +218,11 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 
 	// Handle search trigger
 	if msg.String() == "/" {
-		if m.activeTab == SchemaTab {
+		switch m.activeTab {
+		case SchemaTab:
 			m.showSchemaFilter = true
 			return m, nil
-		} else if m.activeTab == PreviewTab {
+		case PreviewTab:
 			m.showPreviewFilter = true
 			return m, nil
 		}
@@ -228,11 +230,12 @@ func (m TableDetailModel) handleKeypress(msg tea.KeyMsg) (TableDetailModel, tea.
 
 	// Handle horizontal navigation shortcuts
 	if msg.String() == "0" {
-		if m.activeTab == PreviewTab {
+		switch m.activeTab {
+		case PreviewTab:
 			m.previewColCursor = 0
 			// Force horizontal scroll to show the first column
 			m.forceScrollToColumn(0)
-		} else if m.activeTab == SchemaTab {
+		case SchemaTab:
 			m.horizontalOffset = 0
 		}
 		return m, nil
@@ -669,10 +672,6 @@ func (m TableDetailModel) viewWithLoadingState(loadingSchema, loadingPreview boo
 
 func (m TableDetailModel) renderTabsWithLoading(loadingSchema, loadingPreview bool) string {
 	return m.renderTabsWithState(loadingSchema, loadingPreview)
-}
-
-func (m TableDetailModel) renderTabs() string {
-	return m.renderTabsWithState(false, false)
 }
 
 func (m TableDetailModel) renderTabsWithState(loadingSchema, loadingPreview bool) string {

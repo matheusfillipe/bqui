@@ -76,10 +76,7 @@ func (m Model) loadDatasets() tea.Cmd {
 
 		// Cache the result if cache is available
 		if m.cache != nil {
-			if err := m.cache.SetDatasets(projectID, datasets); err != nil {
-				// Continue even if caching fails, just log internally
-				// In a real app, you might want to log this error
-			}
+			_ = m.cache.SetDatasets(projectID, datasets) // Continue even if caching fails
 		}
 
 		return DatasetsLoadedMsg{Datasets: datasets}
@@ -110,9 +107,7 @@ func (m Model) loadTables() tea.Cmd {
 
 		// Cache the result if cache is available
 		if m.cache != nil {
-			if err := m.cache.SetTables(projectID, datasetID, tables); err != nil {
-				// Continue even if caching fails
-			}
+			_ = m.cache.SetTables(projectID, datasetID, tables) // Continue even if caching fails
 		}
 
 		return TablesLoadedMsg{DatasetID: datasetID, Tables: tables}
@@ -147,9 +142,7 @@ func (m Model) loadTableSchema() tea.Cmd {
 
 		// Cache the result if cache is available
 		if m.cache != nil {
-			if err := m.cache.SetSchema(projectID, table.DatasetID, table.ID, schema); err != nil {
-				// Continue even if caching fails
-			}
+			_ = m.cache.SetSchema(projectID, table.DatasetID, table.ID, schema) // Continue even if caching fails
 		}
 
 		return TableSchemaLoadedMsg{

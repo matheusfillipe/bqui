@@ -109,11 +109,6 @@ func (m *ProjectSelectorModel) updateFilteredProjects() {
 	}
 }
 
-// Legacy method for compatibility - now just returns cached filtered projects
-func (m ProjectSelectorModel) getFilteredProjects() []*bigquery.Project {
-	return m.filteredProjects
-}
-
 func (m ProjectSelectorModel) View() string {
 	var content strings.Builder
 
