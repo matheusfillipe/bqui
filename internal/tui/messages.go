@@ -59,10 +59,29 @@ type ProjectSelectedMsg struct {
 
 func (m Model) loadDatasets() tea.Cmd {
 	return func() tea.Msg {
+		projectID := m.bqClient.GetProjectID()
+
+		// Try cache first if available
+		if m.cache != nil {
+			if cachedDatasets, found := m.cache.GetDatasets(projectID); found {
+				return DatasetsLoadedMsg{Datasets: cachedDatasets}
+			}
+		}
+
+		// Load from BigQuery
 		datasets, err := m.bqClient.ListDatasets()
 		if err != nil {
 			return ErrorMsg{Error: fmt.Errorf("failed to load datasets: %w", err)}
 		}
+
+		// Cache the result if cache is available
+		if m.cache != nil {
+			if err := m.cache.SetDatasets(projectID, datasets); err != nil {
+				// Continue even if caching fails, just log internally
+				// In a real app, you might want to log this error
+			}
+		}
+
 		return DatasetsLoadedMsg{Datasets: datasets}
 	}
 }
@@ -74,10 +93,28 @@ func (m Model) loadTables() tea.Cmd {
 
 	datasetID := m.datasetList.selectedDataset.ID
 	return func() tea.Msg {
+		projectID := m.bqClient.GetProjectID()
+
+		// Try cache first if available
+		if m.cache != nil {
+			if cachedTables, found := m.cache.GetTables(projectID, datasetID); found {
+				return TablesLoadedMsg{DatasetID: datasetID, Tables: cachedTables}
+			}
+		}
+
+		// Load from BigQuery
 		tables, err := m.bqClient.ListTables(datasetID)
 		if err != nil {
 			return ErrorMsg{Error: fmt.Errorf("failed to load tables for dataset %s: %w", datasetID, err)}
 		}
+
+		// Cache the result if cache is available
+		if m.cache != nil {
+			if err := m.cache.SetTables(projectID, datasetID, tables); err != nil {
+				// Continue even if caching fails
+			}
+		}
+
 		return TablesLoadedMsg{DatasetID: datasetID, Tables: tables}
 	}
 }
@@ -89,10 +126,32 @@ func (m Model) loadTableSchema() tea.Cmd {
 
 	table := m.datasetList.selectedTable
 	return func() tea.Msg {
+		projectID := m.bqClient.GetProjectID()
+
+		// Try cache first if available
+		if m.cache != nil {
+			if cachedSchema, found := m.cache.GetSchema(projectID, table.DatasetID, table.ID); found {
+				return TableSchemaLoadedMsg{
+					DatasetID: table.DatasetID,
+					TableID:   table.ID,
+					Schema:    cachedSchema,
+				}
+			}
+		}
+
+		// Load from BigQuery
 		schema, err := m.bqClient.GetTableSchema(table.DatasetID, table.ID)
 		if err != nil {
 			return ErrorMsg{Error: fmt.Errorf("failed to load schema for table %s: %w", table.ID, err)}
 		}
+
+		// Cache the result if cache is available
+		if m.cache != nil {
+			if err := m.cache.SetSchema(projectID, table.DatasetID, table.ID, schema); err != nil {
+				// Continue even if caching fails
+			}
+		}
+
 		return TableSchemaLoadedMsg{
 			DatasetID: table.DatasetID,
 			TableID:   table.ID,

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bqui/internal/bigquery"
+	"bqui/internal/cache"
 	"bqui/pkg/clipboard"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -47,6 +48,7 @@ type KeyMap struct {
 	PageUp      key.Binding
 	PageDown    key.Binding
 	ProjectList key.Binding
+	Refresh     key.Binding
 	Escape      key.Binding
 	Back        key.Binding
 	Quit        key.Binding
@@ -123,6 +125,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+space", "alt+p"),
 			key.WithHelp("ctrl+space/alt+p", "project selector"),
 		),
+		Refresh: key.NewBinding(
+			key.WithKeys("r", "ctrl+r"),
+			key.WithHelp("r/ctrl+r", "refresh/clear cache"),
+		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
 			key.WithHelp("esc", "back/cancel/clear"),
@@ -168,6 +174,7 @@ const (
 type Model struct {
 	ctx                   context.Context
 	bqClient              *bigquery.Client
+	cache                 *cache.Cache
 	datasetList           DatasetListModel
 	tableDetail           TableDetailModel
 	projectSelector       ProjectSelectorModel
@@ -191,9 +198,18 @@ type Model struct {
 }
 
 func NewModel(ctx context.Context, bqClient *bigquery.Client) Model {
+	// Initialize cache
+	cacheInstance, err := cache.New()
+	if err != nil {
+		// If cache initialization fails, we'll continue without caching
+		// but log the error for debugging
+		cacheInstance = nil
+	}
+
 	m := Model{
 		ctx:             ctx,
 		bqClient:        bqClient,
+		cache:           cacheInstance,
 		datasetList:     NewDatasetListModel(),
 		tableDetail:     NewTableDetailModel(),
 		projectSelector: NewProjectSelectorModel(),
@@ -203,7 +219,7 @@ func NewModel(ctx context.Context, bqClient *bigquery.Client) Model {
 		help:            help.New(),
 		showHelp:        false,
 		ready:           false,
-		loadingDatasets: false,
+		loadingDatasets: true, // Start with loading state
 		loadingTables:   false,
 		loadingSchema:   false,
 		loadingPreview:  false,
@@ -213,7 +229,6 @@ func NewModel(ctx context.Context, bqClient *bigquery.Client) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	m.loadingDatasets = true
 	return tea.Batch(
 		m.datasetList.Init(),
 		m.loadDatasets(),
@@ -251,6 +266,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.loadProjects()
 			}
 			return m, nil
+
+		case key.Matches(msg, m.keyMap.Refresh):
+			return m.handleRefresh()
 
 		case key.Matches(msg, m.keyMap.Escape):
 			if m.showProjectList {
@@ -314,14 +332,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case TablesLoadedMsg:
+		realDatasetID := msg.DatasetID
+
 		// Only accept tables if they match the currently selected dataset
-		if m.datasetList.selectedDataset != nil && m.datasetList.selectedDataset.ID == msg.DatasetID {
+		if m.datasetList.selectedDataset != nil && m.datasetList.selectedDataset.ID == realDatasetID {
 			m.datasetList.tables = msg.Tables
 			m.loadingTables = false
-			m.statusMessage = fmt.Sprintf("Loaded %d tables from %s", len(msg.Tables), msg.DatasetID)
-		} else {
-			// Ignore stale response from previous dataset selection
-			m.statusMessage = fmt.Sprintf("Ignored stale table response for %s", msg.DatasetID)
+			m.statusMessage = fmt.Sprintf("Loaded %d tables from %s", len(msg.Tables), realDatasetID)
+
+			// Auto-select the first table if we're showing tables and have tables
+			if m.datasetList.showingTables && len(msg.Tables) > 0 {
+				m.datasetList.selectedTable = msg.Tables[0]
+				m.loadingSchema = true
+				m.loadingPreview = true
+				// Load schema and preview for the first table
+				return m, tea.Batch(
+					m.loadTableSchema(),
+					m.loadTablePreview(),
+				)
+			}
 		}
 		return m, nil
 
@@ -428,7 +457,12 @@ func (m Model) updateFocusedComponent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.focus {
 	case FocusDatasetList:
+		oldShowingTables := m.datasetList.showingTables
 		m.datasetList, cmd = m.datasetList.Update(msg)
+		// Clear the last selected dataset ID when exiting tables view so tables reload when re-entering
+		if oldShowingTables && !m.datasetList.showingTables {
+			m.lastSelectedDatasetID = ""
+		}
 		// Check if user explicitly selected a table (pressed Enter)
 		if m.datasetList.tableSelected {
 			m.datasetList.tableSelected = false // Reset flag
@@ -446,10 +480,11 @@ func (m Model) updateFocusedComponent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.loadTableSchema(), m.loadTablePreview())
 			}
 		}
-		if m.datasetList.selectedDataset != nil {
-			// Only load if dataset changed to prevent race conditions
-			if m.lastSelectedDatasetID != m.datasetList.selectedDataset.ID {
-				m.lastSelectedDatasetID = m.datasetList.selectedDataset.ID
+		if m.datasetList.selectedDataset != nil && m.datasetList.showingTables {
+			// Only load tables if we're in tables view AND dataset changed
+			currentID := m.datasetList.selectedDataset.ID
+			if m.lastSelectedDatasetID != currentID {
+				m.lastSelectedDatasetID = currentID
 				m.lastSelectedTableID = "" // Clear last selected table
 				// Clear table details immediately when dataset changes
 				m.tableDetail.schema = nil
@@ -746,10 +781,89 @@ func (m Model) renderCustomHelp() string {
 	content.WriteString("  Page Up/Down      Page navigation\n\n")
 
 	content.WriteString(HeaderStyle.Render("Other:") + "\n")
+	content.WriteString("  r or Ctrl+R       Refresh/clear cache\n")
 	content.WriteString("  ?                 Show/hide this help\n")
 	content.WriteString("  q or Ctrl+C       Quit\n\n")
 
 	content.WriteString(HelpStyle.Render("Press any key to close help"))
 
 	return content.String()
+}
+
+// handleRefresh clears cache and reloads data based on current focus
+func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
+	if m.cache == nil {
+		// No cache to clear, just reload
+		return m.reloadCurrentView()
+	}
+
+	projectID := m.bqClient.GetProjectID()
+	var err error
+
+	switch m.focus {
+	case FocusDatasetList:
+		if m.datasetList.showingTables && m.datasetList.selectedDataset != nil {
+			// In tables view - clear tables cache for this dataset
+			err = m.cache.ClearAllTablesInDataset(projectID, m.datasetList.selectedDataset.ID)
+		} else {
+			// In datasets view - clear datasets cache
+			err = m.cache.ClearDatasets(projectID)
+		}
+	case FocusTableDetail:
+		if m.datasetList.selectedTable != nil {
+			// Clear schema cache for this table regardless of active tab
+			err = m.cache.ClearSchema(projectID, m.datasetList.selectedTable.DatasetID, m.datasetList.selectedTable.ID)
+		}
+	}
+
+	if err != nil {
+		m.statusMessage = fmt.Sprintf("Cache clear failed: %s", err.Error())
+	} else {
+		m.statusMessage = "Cache cleared, refreshing..."
+	}
+
+	// Reload the current view
+	return m.reloadCurrentView()
+}
+
+// reloadCurrentView triggers appropriate loading based on current focus and state
+func (m Model) reloadCurrentView() (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case FocusDatasetList:
+		if m.datasetList.showingTables && m.datasetList.selectedDataset != nil {
+			// Reload tables
+			m.loadingTables = true
+			return m, m.loadTables()
+		} else {
+			// Reload datasets
+			m.loadingDatasets = true
+			return m, m.loadDatasets()
+		}
+	case FocusTableDetail:
+		if m.datasetList.selectedTable != nil {
+			// Check active tab using comparison with the first tab as 0, second as 1, etc.
+			switch m.tableDetail.activeTab {
+			case 0: // SchemaTab
+				// Reload schema
+				m.loadingSchema = true
+				return m, m.loadTableSchema()
+			case 1: // PreviewTab
+				// Reload preview (not cached)
+				m.loadingPreview = true
+				return m, m.loadTablePreview()
+			case 3: // ResultsTab
+				// Re-execute last query if available
+				if m.tableDetail.executedQuery != "" {
+					m.statusMessage = "Re-executing query..."
+					return m, m.executeQuery(m.tableDetail.executedQuery)
+				}
+			default:
+				// For QueryTab (2) or other tabs, reload schema as default
+				m.loadingSchema = true
+				return m, m.loadTableSchema()
+			}
+		}
+	}
+
+	return m, nil
 }

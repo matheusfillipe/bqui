@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"bqui/internal/bigquery"
@@ -17,10 +18,11 @@ import (
 )
 
 var (
-	projectID = flag.String("project", "", "BigQuery project ID (if not provided, will use default from credentials)")
-	credFile  = flag.String("credentials", "", "Path to service account credentials file (optional)")
-	emulator  = flag.String("emulator", "", "BigQuery emulator endpoint (for testing)")
-	version   = flag.Bool("version", false, "Show version information")
+	projectID  = flag.String("project", "", "BigQuery project ID (if not provided, will use default from credentials)")
+	credFile   = flag.String("credentials", "", "Path to service account credentials file (optional)")
+	emulator   = flag.String("emulator", "", "BigQuery emulator endpoint (for testing)")
+	version    = flag.Bool("version", false, "Show version information")
+	clearCache = flag.Bool("clear-cache", false, "Clear all cached data and exit")
 )
 
 const (
@@ -34,6 +36,14 @@ func main() {
 	if *version {
 		fmt.Printf("%s version %s\n", appName, appVersion)
 		fmt.Println("A BigQuery Terminal User Interface")
+		os.Exit(0)
+	}
+
+	if *clearCache {
+		if err := clearAllCache(); err != nil {
+			log.Fatalf("Failed to clear cache: %v", err)
+		}
+		fmt.Println("Cache cleared successfully")
 		os.Exit(0)
 	}
 
@@ -118,6 +128,36 @@ func getGCloudDefaultProject() string {
 	}
 
 	return projectID
+}
+
+func clearAllCache() error {
+	// Get the cache directory by recreating the cache directory logic
+	var cacheDir string
+	switch {
+	case os.Getenv("LOCALAPPDATA") != "": // Windows
+		cacheDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "bqui")
+	case os.Getenv("XDG_CACHE_HOME") != "": // Linux with XDG
+		cacheDir = filepath.Join(os.Getenv("XDG_CACHE_HOME"), "bqui")
+	default: // macOS and Linux fallback
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(filepath.Join(homeDir, "Library")); err == nil {
+			// macOS
+			cacheDir = filepath.Join(homeDir, "Library", "Caches", "bqui")
+		} else {
+			// Linux
+			cacheDir = filepath.Join(homeDir, ".cache", "bqui")
+		}
+	}
+
+	// Remove the entire cache directory
+	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove cache directory: %w", err)
+	}
+
+	return nil
 }
 
 func init() {

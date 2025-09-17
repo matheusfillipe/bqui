@@ -52,6 +52,27 @@ func (m DatasetListModel) Update(msg tea.Msg) (DatasetListModel, tea.Cmd) {
 
 func (m DatasetListModel) handleKeypress(msg tea.KeyMsg) (DatasetListModel, tea.Cmd) {
 	filteredItems := m.getFilteredItems()
+
+	// Always allow navigation keys that don't depend on items
+	switch {
+	case key.Matches(msg, DefaultKeyMap().Left):
+		if m.showingTables {
+			m.showingTables = false
+			m.selectedTable = nil
+			m.cursor = 0
+		}
+		return m, nil
+
+	case key.Matches(msg, DefaultKeyMap().Right):
+		if !m.showingTables && m.selectedDataset != nil {
+			m.showingTables = true
+			m.cursor = 0
+			m.tables = make([]*bigquery.Table, 0) // Clear old table list immediately
+		}
+		return m, nil
+	}
+
+	// For other keys, check if we have items to navigate
 	if len(filteredItems) == 0 {
 		return m, nil
 	}
@@ -111,19 +132,6 @@ func (m DatasetListModel) handleKeypress(msg tea.KeyMsg) (DatasetListModel, tea.
 			}
 		}
 
-	case key.Matches(msg, DefaultKeyMap().Left):
-		if m.showingTables {
-			m.showingTables = false
-			m.selectedTable = nil
-			m.cursor = 0
-		}
-
-	case key.Matches(msg, DefaultKeyMap().Right):
-		if !m.showingTables && m.selectedDataset != nil {
-			m.showingTables = true
-			m.cursor = 0
-			m.tables = make([]*bigquery.Table, 0) // Clear old table list immediately
-		}
 	}
 
 	m.updateSelection()
@@ -276,7 +284,11 @@ func (m DatasetListModel) viewWithLoadingState(loadingDatasets, loadingTables bo
 		if len(m.datasets) == 0 && !m.showingTables {
 			content.WriteString(SubtleItemStyle.Render("No datasets found"))
 		} else if len(m.tables) == 0 && m.showingTables {
-			content.WriteString(SubtleItemStyle.Render("No tables found"))
+			if loadingTables {
+				content.WriteString(SubtleItemStyle.Render("Loading tables..."))
+			} else {
+				content.WriteString(SubtleItemStyle.Render("No tables found"))
+			}
 		} else {
 			content.WriteString(SubtleItemStyle.Render("No items match filter"))
 		}
